@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+            archive: pas-windows-x64.zip
+            exe: pas.exe
+          - name: macos-x64
+            os: macos-13
+            archive: pas-macos-x64.zip
+            exe: pas
+          - name: macos-arm64
+            os: macos-14
+            archive: pas-macos-arm64.zip
+            exe: pas
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: python -m pip install --upgrade pip pyinstaller
+
+      - name: Build executable
+        run: pyinstaller --clean --onefile --paths src --name pas src/pas_automation/cli.py
+
+      - name: Prepare package
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="package-${{ matrix.name }}"
+          mkdir -p "$package/bin"
+          cp "dist/${{ matrix.exe }}" "$package/bin/"
+          cp README.md pyproject.toml config.example.toml .env.example "$package/"
+          cp -R docs launchd scripts "$package/"
+
+      - name: Archive package on macOS
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "package-${{ matrix.name }}"
+          chmod +x bin/pas scripts/*.sh
+          zip -r "../${{ matrix.archive }}" .
+
+      - name: Archive package on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "package-${{ matrix.name }}\*" -DestinationPath "${{ matrix.archive }}" -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: ${{ matrix.archive }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          files=$(find artifacts -name "*.zip" -type f | sort)
+          gh release create "$TAG_NAME" $files \
+            --title "$TAG_NAME" \
+            --notes "PAS automation release. Runtime binaries are included. Secrets are not included; create config.toml and .env on each machine."

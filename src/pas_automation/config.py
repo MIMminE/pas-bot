@@ -81,10 +81,10 @@ def load_config(path: str | Path) -> AppConfig:
             data_dir=data_dir,
         ),
         jira=JiraConfig(
-            base_url=os.environ.get("JIRA_BASE_URL", raw["jira"]["base_url"]).rstrip("/"),
-            email=os.environ.get("JIRA_EMAIL", raw["jira"]["email"]),
+            base_url=_env_or("JIRA_BASE_URL", raw["jira"]["base_url"]).rstrip("/"),
+            email=_env_or("JIRA_EMAIL", raw["jira"]["email"]),
             token_env=raw["jira"].get("token_env", "JIRA_API_TOKEN"),
-            default_project=os.environ.get("JIRA_DEFAULT_PROJECT", raw["jira"].get("default_project", "")),
+            default_project=_env_or("JIRA_DEFAULT_PROJECT", raw["jira"].get("default_project", "")),
             todo_jql=raw["jira"]["todo_jql"],
             yesterday_assigned_jql=raw["jira"].get(
                 "yesterday_assigned_jql",
@@ -108,3 +108,8 @@ def load_config(path: str | Path) -> AppConfig:
         ),
         repo_roots=repo_roots,
     )
+
+
+def _env_or(name: str, default: str) -> str:
+    value = os.environ.get(name)
+    return value if value else default

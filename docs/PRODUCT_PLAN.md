@@ -308,6 +308,8 @@ config.toml
 - [x] macOS launchd 등록 스크립트
 - [x] 공통 CLI wrapper 스크립트
 - [x] `.env` 기반 환경변수 로딩
+- [x] 태그 기반 GitHub Actions 릴리즈 워크플로
+- [x] PyInstaller 기반 Python 런타임 포함 배포 구조
 - [ ] Jira API 실제 mac 환경 테스트
 - [ ] Slack 실제 전송 확인
 - [ ] OpenAI API key 설정 방식 확정
