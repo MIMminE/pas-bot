@@ -81,6 +81,9 @@ jobs:
       - build-windows-tray
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -94,6 +97,7 @@ jobs:
           set -euo pipefail
           files=$(find artifacts -name "*.zip" -type f | sort)
           gh release create "$TAG_NAME" $files \
+            --repo "$GITHUB_REPOSITORY" \
             --title "$TAG_NAME" \
             --notes "PAS automation release. Runtime binaries are included. Secrets are not included; create config.toml and .env on each machine."
 
