@@ -31,6 +31,23 @@ struct PASMenuBarApp: App {
 
                 Divider()
 
+                Button("Send Git Status") {
+                    runner.run(["repo", "status", "--send-slack"])
+                }
+                .disabled(runner.isRunning)
+
+                Button("Git Status Dry Run") {
+                    runner.run(["repo", "status", "--dry-run"])
+                }
+                .disabled(runner.isRunning)
+
+                Button("Run Setup Doctor") {
+                    runner.run(["status", "doctor"])
+                }
+                .disabled(runner.isRunning)
+
+                Divider()
+
                 Button("Open Setup") {
                     runner.openSetupWindow()
                 }

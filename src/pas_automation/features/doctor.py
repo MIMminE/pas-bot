@@ -1,0 +1,48 @@
+from __future__ import annotations
+
+import os
+
+from pas_automation.config import AppConfig
+from pas_automation.integrations.git_repos import discover_repositories
+
+
+def run_doctor(config: AppConfig) -> str:
+    checks = [
+        _check("timezone", bool(config.general.timezone), config.general.timezone),
+        _check("git_author", bool(config.general.git_author), config.general.git_author),
+        _check("work_end_time", bool(config.general.work_end_time), config.general.work_end_time),
+        _check("data_dir", True, str(config.general.data_dir)),
+        _check("jira.base_url", bool(config.jira.base_url), config.jira.base_url),
+        _check("jira.email", bool(config.jira.email), config.jira.email),
+        _check(config.jira.token_env, bool(os.environ.get(config.jira.token_env)), "환경변수 설정 필요"),
+        _check(config.slack.webhook_url_env, bool(os.environ.get(config.slack.webhook_url_env)), "환경변수 설정 필요"),
+        _check(config.openai.api_key_env, bool(os.environ.get(config.openai.api_key_env)), "선택 사항: AI 보고서 사용 시 필요"),
+    ]
+
+    repo_lines = []
+    total_repos = 0
+    for root in config.repo_roots:
+        exists = root.path.expanduser().exists()
+        repos = discover_repositories(root.path.expanduser(), recursive=root.recursive) if exists else []
+        total_repos += len(repos)
+        status = "OK" if exists else "WARN"
+        repo_lines.append(f"[{status}] repository root: {root.path} | recursive={root.recursive} | repos={len(repos)}")
+
+    passed = sum(1 for item in checks if item.startswith("[OK]"))
+    lines = [
+        "PAS 설정 진단",
+        f"필수/주요 항목 {passed}/{len(checks)}개 확인",
+        "",
+        *checks,
+        "",
+        "Repository roots",
+        *(repo_lines or ["[WARN] repository root가 아직 설정되지 않았습니다."]),
+        "",
+        f"발견한 Git repository: {total_repos}개",
+    ]
+    return "\n".join(lines)
+
+
+def _check(name: str, ok: bool, detail: str) -> str:
+    status = "OK" if ok else "WARN"
+    return f"[{status}] {name}: {detail}"

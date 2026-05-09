@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from pas_automation.config import AppConfig
 from pas_automation.integrations.git_repos import can_snapshot, commits_since, discover_repositories, snapshot_repo
 from pas_automation.integrations.openai_report import build_report
-from pas_automation.integrations.slack import SlackWebhook
+from pas_automation.integrations.slack import SlackWebhook, context_block, header_block, section_block
 
 
 def snapshot(config: AppConfig, *, name: str) -> Path:
@@ -71,7 +71,7 @@ def report(
         return "[dry-run]\n" + final_report
 
     if send_slack:
-        SlackWebhook(config.slack).send(final_report)
+        SlackWebhook(config.slack).send(final_report, blocks=_report_blocks(final_report, len(sections)))
 
     return final_report
 
@@ -79,3 +79,11 @@ def report(
 def _today_until(config: AppConfig) -> str:
     today = datetime.now(ZoneInfo(config.general.timezone)).date()
     return f"{today.isoformat()} {config.general.work_end_time}"
+
+
+def _report_blocks(report_text: str, repo_count: int) -> list[dict]:
+    return [
+        header_block("오늘의 Git 작업 보고서"),
+        section_block(report_text or "오늘 git 커밋 기준으로 확인된 작업 내역이 없습니다."),
+        context_block(f"커밋이 확인된 repository: {repo_count}개"),
+    ]

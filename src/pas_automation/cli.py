@@ -4,8 +4,10 @@ import argparse
 
 from pas_automation.app_state import default_config_path, default_env_path, init_app_data
 from pas_automation.config import load_config
+from pas_automation.features.doctor import run_doctor
 from pas_automation.features.jira_daily import assign_issue, format_today_items
 from pas_automation.features.repo_report import report, snapshot
+from pas_automation.features.repo_status import summarize_repositories
 from pas_automation.features.slack_test import send_test_message
 from pas_automation.runtime_env import load_env_file
 
@@ -44,6 +46,14 @@ def build_parser() -> argparse.ArgumentParser:
     repo_report.add_argument("--snapshot", default="morning")
     repo_report.add_argument("--send-slack", action="store_true")
     repo_report.add_argument("--dry-run", action="store_true")
+
+    repo_status = repo_sub.add_parser("status", help="Summarize local repository health")
+    repo_status.add_argument("--send-slack", action="store_true")
+    repo_status.add_argument("--dry-run", action="store_true")
+
+    status = subparsers.add_parser("status", help="Local app status and diagnostics")
+    status_sub = status.add_subparsers(dest="command", required=True)
+    status_sub.add_parser("doctor", help="Check configuration and local repository roots")
 
     return parser
 
@@ -89,6 +99,14 @@ def main(argv: list[str] | None = None) -> int:
                 dry_run=args.dry_run,
             )
         )
+        return 0
+
+    if args.area == "repo" and args.command == "status":
+        print(summarize_repositories(config, send_slack=args.send_slack, dry_run=args.dry_run))
+        return 0
+
+    if args.area == "status" and args.command == "doctor":
+        print(run_doctor(config))
         return 0
 
     raise RuntimeError("Unknown command")

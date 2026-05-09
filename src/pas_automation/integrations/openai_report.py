@@ -16,13 +16,16 @@ def build_report(config: OpenAIConfig, commits_text: str) -> str:
         "input": [
             {
                 "role": "system",
-                "content": "You write concise Korean daily work reports from git commits. Group related work and avoid exaggeration.",
+                "content": (
+                    "You write concise Korean daily work reports from git commits. "
+                    "Group related work, avoid exaggeration, and mention uncertainty when the commit message is vague."
+                ),
             },
             {
                 "role": "user",
                 "content": (
-                    "아래 git commit 목록을 기반으로 오늘 한 일 보고서를 한국어로 작성해줘. "
-                    "Slack에 바로 올릴 수 있게 제목, 핵심 작업, 참고/리스크 순서로 간결하게 정리해줘.\n\n"
+                    "아래 git commit 목록을 기반으로 오늘 작업 보고서를 한국어로 작성해줘. "
+                    "Slack에 바로 붙여넣기 좋게 제목, 핵심 작업, 참고/리스크 순서로 간결하게 정리해줘.\n\n"
                     f"{commits_text}"
                 ),
             },
@@ -47,4 +50,4 @@ def build_report(config: OpenAIConfig, commits_text: str) -> str:
 def fallback_report(commits_text: str) -> str:
     if not commits_text.strip():
         return "오늘 git 커밋 기준으로 확인된 작업 내역이 없습니다."
-    return "오늘 한 일 초안\n\n" + commits_text
+    return "오늘 작업 초안\n\n" + commits_text

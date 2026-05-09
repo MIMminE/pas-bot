@@ -62,3 +62,22 @@ def commits_since(repo: Path, since_ref: str, *, author: str, until: str | None)
     if until:
         args.insert(1, f"--until={until}")
     return git(repo, *args)
+
+
+def status_porcelain(repo: Path) -> list[str]:
+    output = git(repo, "status", "--porcelain=v1")
+    return [line for line in output.splitlines() if line.strip()]
+
+
+def ahead_behind(repo: Path) -> tuple[int | None, int | None]:
+    try:
+        upstream = git(repo, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    except RuntimeError:
+        return None, None
+    if not upstream:
+        return None, None
+    counts = git(repo, "rev-list", "--left-right", "--count", f"{upstream}...HEAD").split()
+    if len(counts) != 2:
+        return None, None
+    behind, ahead = int(counts[0]), int(counts[1])
+    return ahead, behind
