@@ -164,6 +164,8 @@ git push origin v0.1.0
 
 `pas-macos-menubar-arm64.zip`에는 `PAS.app`이 들어갑니다. 앱은 내부에 포함된 `bin/pas`를 호출하며, 설정 파일은 최초 실행 시 `~/Library/Application Support/PAS/` 아래에 예시 파일로 생성됩니다.
 
+현재 macOS 앱은 Apple Developer ID notarization이 없는 ad-hoc signed 빌드입니다. 처음 실행 시 Gatekeeper가 막으면 Finder에서 우클릭 후 `Open`을 사용하거나, 시스템 설정의 보안 허용을 사용해야 할 수 있습니다.
+
 `pas-windows-tray-x64.zip`에는 `PASTray.exe`가 들어갑니다. 앱은 내부에 포함된 `bin/pas.exe`를 호출하며, 설정 파일은 최초 실행 시 `%APPDATA%\PAS\` 아래에 예시 파일로 생성됩니다.
 
 릴리즈 zip을 푼 뒤:
