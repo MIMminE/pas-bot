@@ -19,18 +19,24 @@ default:
 check:
     {{py}} -m compileall -q src
 
+[unix]
 smoke:
-    {{py}} -m pas_automation.cli --config config.example.toml --env .env.example slack test --dry-run
-    {{py}} -m pas_automation.cli --config config.example.toml --env .env.example jira today --dry-run
+    PAS_APP_DATA_DIR=.pas-smoke {{py}} -m pas_automation.cli --template-dir . --config config.example.toml --env .env.example slack test --dry-run
+    PAS_APP_DATA_DIR=.pas-smoke {{py}} -m pas_automation.cli --template-dir . --config config.example.toml --env .env.example jira today --dry-run
+
+[windows]
+smoke:
+    powershell -NoProfile -Command "$env:PAS_APP_DATA_DIR='.pas-smoke'; {{py}} -m pas_automation.cli --template-dir . --config config.example.toml --env .env.example slack test --dry-run"
+    powershell -NoProfile -Command "$env:PAS_APP_DATA_DIR='.pas-smoke'; {{py}} -m pas_automation.cli --template-dir . --config config.example.toml --env .env.example jira today --dry-run"
 
 [windows]
 clean:
-    powershell -NoProfile -Command "Get-ChildItem -Recurse -Directory -Filter __pycache__ -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force; Remove-Item -Recurse -Force build, dist -ErrorAction SilentlyContinue; Remove-Item -Force *.spec -ErrorAction SilentlyContinue"
+    powershell -NoProfile -Command "Get-ChildItem -Recurse -Directory -Filter __pycache__ -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force; Remove-Item -Recurse -Force build, dist, .pas-smoke -ErrorAction SilentlyContinue; Remove-Item -Force *.spec -ErrorAction SilentlyContinue"
 
 [unix]
 clean:
     find . -type d -name __pycache__ -prune -exec rm -rf {} +
-    rm -rf build dist *.spec
+    rm -rf build dist .pas-smoke *.spec
 
 status:
     git status --short --ignored

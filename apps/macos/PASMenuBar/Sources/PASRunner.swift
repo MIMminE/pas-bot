@@ -73,9 +73,12 @@ final class PASRunner: ObservableObject {
     private nonisolated func prepareSupportFiles() throws {
         let directory = supportDirectory()
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: logsDirectory(), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: snapshotsDirectory(), withIntermediateDirectories: true)
 
         copyExampleIfNeeded(resourcePath: "config.example.toml", to: configURL())
         copyExampleIfNeeded(resourcePath: ".env.example", to: envURL())
+        createStateIfNeeded()
     }
 
     private nonisolated func copyExampleIfNeeded(resourcePath: String, to destination: URL) {
@@ -104,5 +107,30 @@ final class PASRunner: ObservableObject {
 
     private nonisolated func envURL() -> URL {
         supportDirectory().appendingPathComponent(".env")
+    }
+
+    private nonisolated func logsDirectory() -> URL {
+        supportDirectory().appendingPathComponent("logs", isDirectory: true)
+    }
+
+    private nonisolated func snapshotsDirectory() -> URL {
+        supportDirectory().appendingPathComponent("snapshots", isDirectory: true)
+    }
+
+    private nonisolated func stateURL() -> URL {
+        supportDirectory().appendingPathComponent("state.json")
+    }
+
+    private nonisolated func createStateIfNeeded() {
+        let destination = stateURL()
+        guard !fileManager.fileExists(atPath: destination.path) else { return }
+        let payload = """
+        {
+          "version": 1,
+          "created_at": "\(ISO8601DateFormatter().string(from: Date()))",
+          "last_runs": {}
+        }
+        """
+        try? payload.write(to: destination, atomically: true, encoding: .utf8)
     }
 }

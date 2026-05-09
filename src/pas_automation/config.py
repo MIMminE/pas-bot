@@ -62,6 +62,8 @@ def load_config(path: str | Path) -> AppConfig:
     data_dir = Path(general_raw.get("data_dir", ".pas"))
     if not data_dir.is_absolute():
         data_dir = config_path.parent / data_dir
+    if data_dir.name == ".pas":
+        data_dir = config_path.parent
 
     repo_roots_raw = raw.get("repositories", {}).get("roots", [])
     repo_roots = [

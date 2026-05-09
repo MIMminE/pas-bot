@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 
+from pas_automation.app_state import default_config_path, default_env_path, init_app_data
 from pas_automation.config import load_config
 from pas_automation.features.jira_daily import assign_issue, format_today_items
 from pas_automation.features.repo_report import report, snapshot
@@ -11,8 +12,9 @@ from pas_automation.runtime_env import load_env_file
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pas", description="Personal automation system")
-    parser.add_argument("--config", default="config.toml", help="Path to config.toml")
-    parser.add_argument("--env", default=".env", help="Path to .env file")
+    parser.add_argument("--config", help="Path to config.toml")
+    parser.add_argument("--env", help="Path to .env file")
+    parser.add_argument("--template-dir", help="Directory containing config.example.toml and .env.example")
 
     subparsers = parser.add_subparsers(dest="area", required=True)
 
@@ -48,8 +50,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    load_env_file(args.env)
-    config = load_config(args.config)
+    init_app_data(template_dir=args.template_dir)
+    env_path = args.env or default_env_path()
+    config_path = args.config or default_config_path()
+    load_env_file(env_path)
+    config = load_config(config_path)
 
     if args.area == "jira" and args.command == "today":
         print(

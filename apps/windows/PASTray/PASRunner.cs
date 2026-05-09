@@ -87,8 +87,11 @@ internal sealed class PASRunner
     private void PrepareSupportFiles()
     {
         Directory.CreateDirectory(SupportDirectory());
+        Directory.CreateDirectory(LogsDirectory());
+        Directory.CreateDirectory(SnapshotsDirectory());
         CopyIfMissing(Path.Combine(AppContext.BaseDirectory, "config.example.toml"), ConfigPath());
         CopyIfMissing(Path.Combine(AppContext.BaseDirectory, ".env.example"), EnvPath());
+        CreateStateIfMissing();
     }
 
     private static void CopyIfMissing(string source, string destination)
@@ -114,6 +117,29 @@ internal sealed class PASRunner
     private static string ConfigPath() => Path.Combine(SupportDirectory(), "config.toml");
 
     private static string EnvPath() => Path.Combine(SupportDirectory(), ".env");
+
+    private static string LogsDirectory() => Path.Combine(SupportDirectory(), "logs");
+
+    private static string SnapshotsDirectory() => Path.Combine(SupportDirectory(), "snapshots");
+
+    private static string StatePath() => Path.Combine(SupportDirectory(), "state.json");
+
+    private static void CreateStateIfMissing()
+    {
+        if (File.Exists(StatePath()))
+        {
+            return;
+        }
+
+        var payload = $$"""
+        {
+          "version": 1,
+          "created_at": "{{DateTimeOffset.UtcNow:O}}",
+          "last_runs": {}
+        }
+        """;
+        File.WriteAllText(StatePath(), payload, Encoding.UTF8);
+    }
 
     private static string Truncate(string value, int length)
     {

@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .pas/
+.pas-smoke/
 .env
 config.toml
 .venv/

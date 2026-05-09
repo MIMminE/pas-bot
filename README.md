@@ -40,6 +40,25 @@ OPENAI_API_KEY=
 
 `.env`와 `config.toml`은 git에 커밋하지 않습니다.
 
+릴리즈 앱은 최초 실행 시 OS별 앱 데이터 폴더에 초기 파일을 생성하고, 이후부터는 그 로컬 데이터를 계속 사용합니다.
+
+```text
+macOS: ~/Library/Application Support/PAS/
+Windows: %APPDATA%\PAS\
+```
+
+생성되는 파일/폴더:
+
+```text
+config.toml
+.env
+state.json
+logs/
+snapshots/
+```
+
+앱 업데이트 시 기존 로컬 설정은 덮어쓰지 않습니다.
+
 ## 개발 환경 실행
 
 Gradle task처럼 로컬 개발 작업을 실행할 수 있도록 `just`를 사용합니다.

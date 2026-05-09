@@ -108,6 +108,23 @@ External Services
 
 설정은 두 계층으로 분리한다.
 
+릴리즈 앱은 최초 실행 시 OS별 로컬 앱 데이터 폴더를 초기화하고, 이후부터는 그 로컬 데이터를 계속 사용한다. 앱 업데이트가 발생해도 기존 `config.toml`, `.env`, `state.json`, `logs/`, `snapshots/`는 덮어쓰지 않는다.
+
+```text
+macOS: ~/Library/Application Support/PAS/
+Windows: %APPDATA%\PAS\
+```
+
+초기화 대상:
+
+```text
+config.toml
+.env
+state.json
+logs/
+snapshots/
+```
+
 ### 5.1 `config.toml`
 
 비밀이 아닌 설정을 저장한다. repository에 예시 파일(`config.example.toml`)을 포함할 수 있다.
