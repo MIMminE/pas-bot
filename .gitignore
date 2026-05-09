@@ -10,3 +10,5 @@ dist/
 *.spec
 *.app/
 *.dmg
+apps/**/bin/
+apps/**/obj/

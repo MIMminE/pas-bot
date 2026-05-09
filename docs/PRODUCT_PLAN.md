@@ -311,6 +311,7 @@ config.toml
 - [x] 태그 기반 GitHub Actions 릴리즈 워크플로
 - [x] PyInstaller 기반 Python 런타임 포함 배포 구조
 - [x] macOS SwiftUI 메뉴바 앱 골격
+- [x] Windows 트레이 앱 골격
 - [ ] Jira API 실제 mac 환경 테스트
 - [ ] Slack 실제 전송 확인
 - [ ] OpenAI API key 설정 방식 확정

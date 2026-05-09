@@ -56,3 +56,7 @@ package-local:
 [unix]
 macos-app-build:
     swift build -c release --package-path apps/macos/PASMenuBar
+
+[windows]
+windows-tray-build:
+    dotnet build apps/windows/PASTray/PASTray.csproj -c Release

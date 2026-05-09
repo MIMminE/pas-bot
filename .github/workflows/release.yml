@@ -82,6 +82,7 @@ jobs:
     needs:
       - build
       - build-macos-menubar
+      - build-windows-tray
 
     steps:
       - name: Download artifacts
@@ -147,4 +148,50 @@ jobs:
         with:
           name: pas-macos-menubar-arm64.zip
           path: pas-macos-menubar-arm64.zip
+          if-no-files-found: error
+
+  build-windows-tray:
+    name: Build Windows Tray App
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Install Python build tools
+        run: python -m pip install --upgrade pip pyinstaller
+
+      - name: Build PAS core executable
+        run: pyinstaller --clean --onefile --paths src --name pas src/pas_automation/cli.py
+
+      - name: Publish tray app
+        run: dotnet publish apps/windows/PASTray/PASTray.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -o publish/windows-tray
+
+      - name: Assemble tray package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force package-windows-tray\bin | Out-Null
+          Copy-Item publish\windows-tray\PASTray.exe package-windows-tray\
+          Copy-Item dist\pas.exe package-windows-tray\bin\pas.exe
+          Copy-Item config.example.toml package-windows-tray\
+          Copy-Item .env.example package-windows-tray\
+          Copy-Item README.md package-windows-tray\
+          Copy-Item docs package-windows-tray\docs -Recurse
+          Compress-Archive -Path package-windows-tray\* -DestinationPath pas-windows-tray-x64.zip -Force
+
+      - name: Upload tray artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pas-windows-tray-x64.zip
+          path: pas-windows-tray-x64.zip
           if-no-files-found: error
