@@ -8,3 +8,5 @@ config.toml
 build/
 dist/
 *.spec
+*.app/
+*.dmg

@@ -52,3 +52,7 @@ install-dev:
 
 package-local:
     {{py}} -m PyInstaller --clean --onefile --paths src --name pas src/pas_automation/cli.py
+
+[unix]
+macos-app-build:
+    swift build -c release --package-path apps/macos/PASMenuBar
