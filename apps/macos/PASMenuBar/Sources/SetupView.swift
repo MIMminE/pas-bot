@@ -12,16 +12,16 @@ struct SetupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("PAS Setup")
+            Text("PAS 초기 설정")
                 .font(.title2)
                 .bold()
 
-            Text("Enter the minimum settings required to send Jira updates to Slack.")
+            Text("Jira 일감과 Slack 알림을 테스트하기 위한 최소 설정을 입력하세요.")
                 .foregroundStyle(.secondary)
 
             GroupBox("Slack") {
                 VStack(alignment: .leading) {
-                    Text("Incoming Webhook URL")
+                    Text("수신 Webhook URL")
                     TextField("https://hooks.slack.com/services/...", text: $settings.slackWebhookURL)
                         .textFieldStyle(.roundedBorder)
                 }
@@ -31,22 +31,22 @@ struct SetupView: View {
             GroupBox("Jira") {
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
                     GridRow {
-                        Text("Base URL")
+                        Text("기본 URL")
                         TextField("https://start-today.atlassian.net", text: $settings.jiraBaseURL)
                             .textFieldStyle(.roundedBorder)
                     }
                     GridRow {
-                        Text("Email")
+                        Text("이메일")
                         TextField("you@example.com", text: $settings.jiraEmail)
                             .textFieldStyle(.roundedBorder)
                     }
                     GridRow {
                         Text("API Token")
-                        SecureField("Jira API token", text: $settings.jiraApiToken)
+                        SecureField("Jira API 토큰", text: $settings.jiraApiToken)
                             .textFieldStyle(.roundedBorder)
                     }
                     GridRow {
-                        Text("Project")
+                        Text("기본 프로젝트")
                         TextField("LMS", text: $settings.jiraDefaultProject)
                             .textFieldStyle(.roundedBorder)
                     }
@@ -55,18 +55,18 @@ struct SetupView: View {
             }
 
             HStack {
-                Button("Open Settings Folder") {
+                Button("설정 폴더 열기") {
                     runner.openSupportDirectory()
                 }
 
                 Spacer()
 
-                Button("Save") {
+                Button("저장") {
                     runner.saveSettings(settings)
                 }
                 .keyboardShortcut(.defaultAction)
 
-                Button("Save & Close") {
+                Button("저장 후 닫기") {
                     runner.saveSettings(settings)
                     runner.closeSetupWindow()
                 }
@@ -76,13 +76,13 @@ struct SetupView: View {
             Divider()
 
             HStack {
-                Button("Send Slack Test") {
+                Button("Slack 테스트 전송") {
                     runner.saveSettings(settings)
                     runner.run(["slack", "test"])
                 }
                 .disabled(runner.isRunning || !settings.slackWebhookURL.hasPrefix("https://hooks.slack.com/services/"))
 
-                Button("Jira Dry Run") {
+                Button("Jira 미리보기") {
                     runner.saveSettings(settings)
                     runner.run(["jira", "today", "--dry-run"])
                 }

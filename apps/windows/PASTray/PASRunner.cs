@@ -41,7 +41,7 @@ internal sealed class PASRunner
             using var process = Process.Start(startInfo);
             if (process == null)
             {
-                return Fail("Failed to start pas.exe");
+                return Fail("pas.exe를 시작하지 못했습니다");
             }
 
             var outputTask = process.StandardOutput.ReadToEndAsync();
@@ -51,7 +51,7 @@ internal sealed class PASRunner
             var output = await outputTask;
             var error = await errorTask;
             lastOutput = string.Join(Environment.NewLine, new[] { output, error }.Where(value => !string.IsNullOrWhiteSpace(value)));
-            var summary = string.IsNullOrWhiteSpace(lastOutput) ? "No output" : Truncate(lastOutput.Trim(), 180);
+            var summary = string.IsNullOrWhiteSpace(lastOutput) ? "출력 없음" : Truncate(lastOutput.Trim(), 180);
             return new PASResult(process.ExitCode == 0, lastOutput, summary);
         }
         catch (Exception ex)

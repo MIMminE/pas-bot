@@ -1,18 +1,18 @@
-# PAS Automation
+# PAS 자동화
 
 PAS는 Jira, Git, Slack, OpenAI를 묶어서 개인 업무 자동화를 실행하는 로컬 앱/CLI입니다. 지금은 혼자 쓰는 개발자 비서에 초점을 맞추고, 나중에 기능을 계속 붙일 수 있도록 작은 기능 단위로 확장합니다.
 
 ## 현재 기능
 
 - Jira에서 내게 할당된 미처리 일감을 조회하고 Slack으로 전송
-- Jira 일일 브리핑을 Slack Block Kit 형태의 리포트 메시지로 전송
-- Slack Incoming Webhook 연결 테스트
+- Jira 일일 브리핑을 Slack 블록 킷 형태의 리포트 메시지로 전송
+- Slack 수신 Webhook 연결 테스트
 - 로컬 Git repository snapshot 저장
 - snapshot 이후 내 커밋을 모아 OpenAI 기반 일일 작업 보고서 생성
 - Git repository 상태 요약: 변경 있음, push 필요, pull 확인
 - 설정 진단: Jira/Slack/OpenAI 환경변수와 repository root 확인
 - macOS SwiftUI 메뉴바 앱
-- Windows tray 앱
+- Windows 트레이 앱
 - 태그 기반 GitHub Actions 릴리즈 빌드
 
 ## 설정 파일
@@ -114,20 +114,20 @@ just package-local
 
 macOS 메뉴바 앱과 Windows tray 앱에서 바로 실행할 수 있는 항목:
 
-- Send Slack Test
-- Send Jira Briefing
-- Jira Briefing Dry Run
-- Send Git Status
-- Git Status Dry Run
-- Run Setup Doctor
-- Open Setup 또는 Open Settings Folder
-- Copy Last Output
+- Slack 테스트 전송
+- Jira 브리핑 전송
+- Jira 브리핑 미리보기
+- Git 상태 전송
+- Git 상태 미리보기
+- 설정 진단 실행
+- 초기 설정 열기 또는 설정 폴더 열기
+- 마지막 실행 결과 복사
 
-macOS 앱은 첫 실행 시 Setup 창을 열고 Slack webhook, Jira URL/email/token/project를 받습니다. Windows는 현재 tray 메뉴와 설정 폴더 열기를 우선 제공합니다.
+macOS 앱은 첫 실행 시 초기 설정 창을 열고 Slack webhook, Jira URL/email/token/project를 받습니다. Windows는 현재 트레이 메뉴와 설정 폴더 열기를 우선 제공합니다.
 
 ## 릴리즈
 
-`v*` 태그를 push하면 GitHub Actions가 OS별 실행 파일이 포함된 zip을 만들고 GitHub Release에 업로드합니다.
+`v*` 태그를 push하면 GitHub Actions가 OS별 실행 파일이 포함된 zip을 만들고 GitHub 릴리즈에 업로드합니다.
 
 예상 산출물:
 
@@ -145,4 +145,4 @@ git push origin v0.1.0
 
 릴리즈 zip에는 Python 런타임이 포함된 `bin/pas` 또는 `bin/pas.exe`가 들어가므로 사용자는 별도로 Python을 설치하지 않아도 됩니다.
 
-현재 macOS 앱은 Apple Developer ID notarization이 없는 ad-hoc signed 빌드입니다. 개인 테스트에서는 Finder에서 우클릭 후 Open을 사용하거나, 필요한 경우 quarantine 속성을 제거해서 실행할 수 있습니다. 일반 사용자에게 자연스럽게 배포하려면 Apple Developer Program과 notarization을 붙이는 것이 좋습니다.
+현재 macOS 앱은 Apple Developer ID 공증이 없는 임시 서명 빌드입니다. 개인 테스트에서는 Finder에서 우클릭 후 열기를 사용하거나, 필요한 경우 quarantine 속성을 제거해서 실행할 수 있습니다. 일반 사용자에게 자연스럽게 배포하려면 Apple Developer Program과 공증을 붙이는 것이 좋습니다.

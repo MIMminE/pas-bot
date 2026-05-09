@@ -14,56 +14,56 @@ struct PASMenuBarApp: App {
 
                 Divider()
 
-                Button("Send Slack Test") {
+                Button("Slack 테스트 전송") {
                     runner.run(["slack", "test"])
                 }
                 .disabled(runner.isRunning)
 
-                Button("Send Jira Briefing") {
+                Button("Jira 브리핑 전송") {
                     runner.run(["jira", "today", "--send-slack"])
                 }
                 .disabled(runner.isRunning)
 
-                Button("Jira Briefing Dry Run") {
+                Button("Jira 브리핑 미리보기") {
                     runner.run(["jira", "today", "--dry-run"])
                 }
                 .disabled(runner.isRunning)
 
                 Divider()
 
-                Button("Send Git Status") {
+                Button("Git 상태 전송") {
                     runner.run(["repo", "status", "--send-slack"])
                 }
                 .disabled(runner.isRunning)
 
-                Button("Git Status Dry Run") {
+                Button("Git 상태 미리보기") {
                     runner.run(["repo", "status", "--dry-run"])
                 }
                 .disabled(runner.isRunning)
 
-                Button("Run Setup Doctor") {
+                Button("설정 진단 실행") {
                     runner.run(["status", "doctor"])
                 }
                 .disabled(runner.isRunning)
 
                 Divider()
 
-                Button("Open Setup") {
+                Button("초기 설정 열기") {
                     runner.openSetupWindow()
                 }
 
-                Button("Open Settings Folder") {
+                Button("설정 폴더 열기") {
                     runner.openSupportDirectory()
                 }
 
-                Button("Copy Last Output") {
+                Button("마지막 실행 결과 복사") {
                     runner.copyLastOutput()
                 }
                 .disabled(runner.lastOutput.isEmpty)
 
                 Divider()
 
-                Button("Quit") {
+                Button("종료") {
                     NSApplication.shared.terminate(nil)
                 }
             }

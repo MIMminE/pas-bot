@@ -6,7 +6,7 @@ import SwiftUI
 @MainActor
 final class PASRunner: ObservableObject {
     @Published var isRunning = false
-    @Published var status = "Idle"
+    @Published var status = "대기 중"
     @Published var lastOutput = ""
 
     private let fileManager = FileManager.default
@@ -24,14 +24,14 @@ final class PASRunner: ObservableObject {
     func run(_ arguments: [String]) {
         guard !isRunning else { return }
         isRunning = true
-        status = "Running..."
+        status = "실행 중..."
 
         Task.detached { [weak self] in
             guard let self else { return }
             let result = self.execute(arguments)
             await MainActor.run {
                 self.lastOutput = result.output
-                self.status = result.succeeded ? "Success" : "Failed: \(result.summary)"
+                self.status = result.succeeded ? "성공" : "실패: \(result.summary)"
                 self.isRunning = false
             }
         }
@@ -46,7 +46,7 @@ final class PASRunner: ObservableObject {
     func copyLastOutput() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(lastOutput, forType: .string)
-        status = "Last output copied"
+        status = "마지막 실행 결과를 복사했습니다"
     }
 
     func openSetupWindow() {
@@ -62,7 +62,7 @@ final class PASRunner: ObservableObject {
             backing: .buffered,
             defer: false
         )
-        window.title = "PAS Setup"
+        window.title = "PAS 초기 설정"
         window.center()
         window.contentView = NSHostingView(rootView: SetupView(runner: self))
         window.isReleasedWhenClosed = false
@@ -100,9 +100,9 @@ final class PASRunner: ObservableObject {
             try writeEnv(settings)
             try writeConfig(settings)
             try markSetupCompleted()
-            status = "Settings saved"
+            status = "설정을 저장했습니다"
         } catch {
-            status = "Failed to save settings: \(error.localizedDescription)"
+            status = "설정 저장 실패: \(error.localizedDescription)"
         }
     }
 
@@ -135,7 +135,7 @@ final class PASRunner: ObservableObject {
         let error = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let combined = [output, error].filter { !$0.isEmpty }.joined(separator: "\n")
         let summary = combined.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (process.terminationStatus == 0, combined, summary.isEmpty ? "No output" : summary)
+        return (process.terminationStatus == 0, combined, summary.isEmpty ? "출력 없음" : summary)
     }
 
     private nonisolated func prepareSupportFiles() throws {
