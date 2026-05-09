@@ -163,6 +163,7 @@ git push origin v0.1.0
 릴리즈 zip에는 Python 런타임이 포함된 `bin/pas` 또는 `bin/pas.exe`가 들어갑니다. 사용자는 별도로 Python을 설치하지 않아도 됩니다.
 
 `pas-macos-menubar-arm64.zip`에는 `PAS.app`이 들어갑니다. 앱은 내부에 포함된 `bin/pas`를 호출하며, 설정 파일은 최초 실행 시 `~/Library/Application Support/PAS/` 아래에 예시 파일로 생성됩니다.
+처음 실행하면 Setup 창이 열리고 Slack webhook, Jira URL/email/token/project를 입력한 뒤 바로 Slack 테스트와 Jira dry-run을 실행할 수 있습니다.
 
 현재 macOS 앱은 Apple Developer ID notarization이 없는 ad-hoc signed 빌드입니다. 처음 실행 시 Gatekeeper가 막으면 Finder에서 우클릭 후 `Open`을 사용하거나, 시스템 설정의 보안 허용을 사용해야 할 수 있습니다.
 

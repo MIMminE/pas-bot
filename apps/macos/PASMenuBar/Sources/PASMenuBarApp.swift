@@ -31,6 +31,10 @@ struct PASMenuBarApp: App {
 
                 Divider()
 
+                Button("Open Setup") {
+                    runner.openSetupWindow()
+                }
+
                 Button("Open Settings Folder") {
                     runner.openSupportDirectory()
                 }

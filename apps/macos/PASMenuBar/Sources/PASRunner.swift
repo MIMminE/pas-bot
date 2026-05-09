@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import SwiftUI
 
 @MainActor
 final class PASRunner: ObservableObject {
@@ -9,6 +10,16 @@ final class PASRunner: ObservableObject {
     @Published var lastOutput = ""
 
     private let fileManager = FileManager.default
+    private var setupWindow: NSWindow?
+
+    init() {
+        try? prepareSupportFiles()
+        if !setupCompleted() {
+            DispatchQueue.main.async { [weak self] in
+                self?.openSetupWindow()
+            }
+        }
+    }
 
     func run(_ arguments: [String]) {
         guard !isRunning else { return }
@@ -36,6 +47,63 @@ final class PASRunner: ObservableObject {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(lastOutput, forType: .string)
         status = "Last output copied"
+    }
+
+    func openSetupWindow() {
+        if let setupWindow {
+            setupWindow.makeKeyAndOrderFront(nil)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 520),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "PAS Setup"
+        window.center()
+        window.contentView = NSHostingView(rootView: SetupView(runner: self))
+        window.isReleasedWhenClosed = false
+        setupWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
+    func closeSetupWindow() {
+        setupWindow?.close()
+    }
+
+    func setupCompleted() -> Bool {
+        guard let data = try? Data(contentsOf: stateURL()),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return false
+        }
+        return object["setup_completed"] as? Bool == true
+    }
+
+    func loadSettings() -> PASSettings {
+        PASSettings(
+            slackWebhookURL: readEnvValue("SLACK_WEBHOOK_URL"),
+            jiraBaseURL: readConfigValue(section: "jira", key: "base_url"),
+            jiraEmail: readConfigValue(section: "jira", key: "email"),
+            jiraApiToken: readEnvValue("JIRA_API_TOKEN"),
+            jiraDefaultProject: readConfigValue(section: "jira", key: "default_project")
+        )
+    }
+
+    func saveSettings(_ settings: PASSettings) {
+        do {
+            try prepareSupportFiles()
+            try writeEnv(settings)
+            try writeConfig(settings)
+            try markSetupCompleted()
+            status = "Settings saved"
+        } catch {
+            status = "Failed to save settings: \(error.localizedDescription)"
+        }
     }
 
     private nonisolated func execute(_ arguments: [String]) -> (succeeded: Bool, output: String, summary: String) {
@@ -128,9 +196,119 @@ final class PASRunner: ObservableObject {
         {
           "version": 1,
           "created_at": "\(ISO8601DateFormatter().string(from: Date()))",
+          "setup_completed": false,
           "last_runs": {}
         }
         """
         try? payload.write(to: destination, atomically: true, encoding: .utf8)
+    }
+
+    private func markSetupCompleted() throws {
+        let payload = """
+        {
+          "version": 1,
+          "updated_at": "\(ISO8601DateFormatter().string(from: Date()))",
+          "setup_completed": true,
+          "last_runs": {}
+        }
+        """
+        try payload.write(to: stateURL(), atomically: true, encoding: .utf8)
+    }
+
+    private func readEnvValue(_ key: String) -> String {
+        guard let text = try? String(contentsOf: envURL(), encoding: .utf8) else { return "" }
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.hasPrefix("#"), let separator = trimmed.firstIndex(of: "=") else { continue }
+            let name = trimmed[..<separator].trimmingCharacters(in: .whitespaces)
+            if name == key {
+                return String(trimmed[trimmed.index(after: separator)...])
+            }
+        }
+        return ""
+    }
+
+    private func readConfigValue(section: String, key: String) -> String {
+        guard let text = try? String(contentsOf: configURL(), encoding: .utf8) else { return "" }
+        var currentSection = ""
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") {
+                currentSection = String(trimmed.dropFirst().dropLast())
+                continue
+            }
+            guard currentSection == section, let separator = trimmed.firstIndex(of: "=") else { continue }
+            let name = trimmed[..<separator].trimmingCharacters(in: .whitespaces)
+            if name == key {
+                return unquote(String(trimmed[trimmed.index(after: separator)...].trimmingCharacters(in: .whitespaces)))
+            }
+        }
+        return ""
+    }
+
+    private func writeEnv(_ settings: PASSettings) throws {
+        let text = """
+        JIRA_BASE_URL=\(settings.jiraBaseURL)
+        JIRA_EMAIL=\(settings.jiraEmail)
+        JIRA_API_TOKEN=\(settings.jiraApiToken)
+        JIRA_DEFAULT_PROJECT=\(settings.jiraDefaultProject)
+        SLACK_WEBHOOK_URL=\(settings.slackWebhookURL)
+        OPENAI_API_KEY=\(readEnvValue("OPENAI_API_KEY"))
+        """
+        try text.write(to: envURL(), atomically: true, encoding: .utf8)
+    }
+
+    private func writeConfig(_ settings: PASSettings) throws {
+        guard var text = try? String(contentsOf: configURL(), encoding: .utf8) else { return }
+        text = replaceConfigValue(text, section: "jira", key: "base_url", value: settings.jiraBaseURL)
+        text = replaceConfigValue(text, section: "jira", key: "email", value: settings.jiraEmail)
+        text = replaceConfigValue(text, section: "jira", key: "default_project", value: settings.jiraDefaultProject)
+        try text.write(to: configURL(), atomically: true, encoding: .utf8)
+    }
+
+    private func replaceConfigValue(_ text: String, section: String, key: String, value: String) -> String {
+        var lines = text.components(separatedBy: .newlines)
+        var currentSection = ""
+        for index in lines.indices {
+            let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") {
+                currentSection = String(trimmed.dropFirst().dropLast())
+                continue
+            }
+            guard currentSection == section, let separator = trimmed.firstIndex(of: "=") else { continue }
+            let name = trimmed[..<separator].trimmingCharacters(in: .whitespaces)
+            if name == key {
+                lines[index] = "\(key) = \"\(escapeToml(value))\""
+                break
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func unquote(_ value: String) -> String {
+        if value.count >= 2 && value.first == "\"" && value.last == "\"" {
+            return String(value.dropFirst().dropLast())
+        }
+        return value
+    }
+
+    private func escapeToml(_ value: String) -> String {
+        value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+    }
+}
+
+struct PASSettings {
+    var slackWebhookURL: String
+    var jiraBaseURL: String
+    var jiraEmail: String
+    var jiraApiToken: String
+    var jiraDefaultProject: String
+
+    var isReadyForBasicTests: Bool {
+        slackWebhookURL.hasPrefix("https://hooks.slack.com/services/")
+            && jiraBaseURL.hasPrefix("https://")
+            && jiraEmail.contains("@")
+            && !jiraApiToken.isEmpty
+            && !jiraDefaultProject.isEmpty
     }
 }
