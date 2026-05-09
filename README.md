@@ -149,7 +149,6 @@ scripts/uninstall-jira-daily-launchd.sh
 생성 예정 산출물:
 
 - `pas-windows-x64.zip`
-- `pas-macos-x64.zip`
 - `pas-macos-arm64.zip`
 - `pas-macos-menubar-arm64.zip`
 - `pas-windows-tray-x64.zip`
