@@ -1,0 +1,26 @@
+[general]
+timezone = "Asia/Seoul"
+git_author = "your-git-name-or-email"
+work_end_time = "18:00"
+data_dir = ".pas"
+
+[jira]
+base_url = "https://your-company.atlassian.net"
+email = "you@example.com"
+token_env = "JIRA_API_TOKEN"
+default_project = "OPS"
+todo_jql = "assignee = currentUser() AND statusCategory != Done ORDER BY priority DESC, updated DESC"
+yesterday_assigned_jql = "assignee = currentUser() AND assignee CHANGED TO currentUser() DURING (startOfDay(-1), startOfDay())"
+stale_jql = "assignee = currentUser() AND statusCategory != Done AND updated <= -5d"
+high_priority_jql = "assignee = currentUser() AND statusCategory != Done AND priority in (Highest, High)"
+
+[slack]
+webhook_url_env = "SLACK_WEBHOOK_URL"
+
+[openai]
+api_key_env = "OPENAI_API_KEY"
+model = "gpt-5-mini"
+
+[[repositories.roots]]
+path = "/Users/yourname/STL"
+recursive = true

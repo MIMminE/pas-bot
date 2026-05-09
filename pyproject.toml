@@ -1,0 +1,16 @@
+[project]
+name = "pas-automation"
+version = "0.1.0"
+description = "Personal automation system for Jira, Git repository reports, OpenAI summaries, and Slack delivery."
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+pas = "pas_automation.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
