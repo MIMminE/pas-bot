@@ -40,6 +40,49 @@ OPENAI_API_KEY=
 
 ## 개발 환경 실행
 
+Gradle task처럼 로컬 개발 작업을 실행할 수 있도록 `just`를 사용합니다.
+
+설치:
+
+```bash
+brew install just
+```
+
+Windows:
+
+```powershell
+winget install Casey.Just
+```
+
+```bash
+just
+just check
+just smoke
+```
+
+Windows에서도 같은 명령을 사용합니다.
+
+```powershell
+just
+just check
+just smoke
+```
+
+로컬 가상환경 생성:
+
+```bash
+just setup
+```
+
+로컬에서 PyInstaller 패키징까지 테스트하려면 dev dependency를 설치합니다.
+
+```bash
+just install-dev
+just package-local
+```
+
+릴리즈 산출물은 GitHub Actions에서 만들기 때문에 로컬 패키징은 검증용입니다.
+
 ```bash
 chmod +x scripts/*.sh
 scripts/run-pas.sh slack test --dry-run
