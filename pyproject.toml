@@ -3,7 +3,9 @@ name = "pas-automation"
 version = "0.1.0"
 description = "Personal automation system for Jira, Git repository reports, OpenAI summaries, and Slack delivery."
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "certifi>=2024.8.30",
+]
 
 [project.scripts]
 pas = "pas_automation.cli:main"

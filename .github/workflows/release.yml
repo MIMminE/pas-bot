@@ -35,10 +35,10 @@ jobs:
           python-version: "3.12"
 
       - name: Install build tools
-        run: python -m pip install --upgrade pip pyinstaller
+        run: python -m pip install --upgrade pip pyinstaller -e .
 
       - name: Build executable
-        run: pyinstaller --clean --onefile --paths src --name pas src/pas_automation/cli.py
+        run: pyinstaller --clean --onefile --paths src --collect-data certifi --name pas src/pas_automation/cli.py
 
       - name: Prepare package
         shell: bash
@@ -115,10 +115,10 @@ jobs:
           python-version: "3.12"
 
       - name: Install Python build tools
-        run: python -m pip install --upgrade pip pyinstaller
+        run: python -m pip install --upgrade pip pyinstaller -e .
 
       - name: Build PAS core executable
-        run: pyinstaller --clean --onefile --paths src --name pas src/pas_automation/cli.py
+        run: pyinstaller --clean --onefile --paths src --collect-data certifi --name pas src/pas_automation/cli.py
 
       - name: Build SwiftUI menu bar executable
         run: swift build -c release --package-path apps/macos/PASMenuBar
@@ -171,10 +171,10 @@ jobs:
           dotnet-version: "8.0.x"
 
       - name: Install Python build tools
-        run: python -m pip install --upgrade pip pyinstaller
+        run: python -m pip install --upgrade pip pyinstaller -e .
 
       - name: Build PAS core executable
-        run: pyinstaller --clean --onefile --paths src --name pas src/pas_automation/cli.py
+        run: pyinstaller --clean --onefile --paths src --collect-data certifi --name pas src/pas_automation/cli.py
 
       - name: Publish tray app
         run: dotnet publish apps/windows/PASTray/PASTray.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -o publish/windows-tray
