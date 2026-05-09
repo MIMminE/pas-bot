@@ -5,6 +5,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from pas_automation.config import AppConfig
+from pas_automation.features.assignees import resolve_assignee
 from pas_automation.integrations.jira import JiraClient
 from pas_automation.integrations.slack import (
     SlackWebhook,
@@ -56,6 +57,7 @@ def format_today_items(
 
 
 def assign_issue(config: AppConfig, issue_key: str, account_id_or_email: str, *, dry_run: bool) -> str:
+    account_id_or_email = resolve_assignee(config, account_id_or_email)
     if dry_run:
         return f"[dry-run] Assign {issue_key} to {account_id_or_email}"
     JiraClient(config.jira).assign_issue(issue_key, account_id_or_email)

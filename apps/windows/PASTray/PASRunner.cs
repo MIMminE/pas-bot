@@ -12,6 +12,8 @@ internal sealed class PASRunner
 {
     private string lastOutput = "";
 
+    public string LastOutput => lastOutput;
+
     public async Task<PASResult> RunAsync(params string[] args)
     {
         PrepareSupportFiles();
@@ -29,8 +31,6 @@ internal sealed class PASRunner
 
         startInfo.ArgumentList.Add("--config");
         startInfo.ArgumentList.Add(ConfigPath());
-        startInfo.ArgumentList.Add("--env");
-        startInfo.ArgumentList.Add(EnvPath());
         foreach (var arg in args)
         {
             startInfo.ArgumentList.Add(arg);
@@ -41,7 +41,7 @@ internal sealed class PASRunner
             using var process = Process.Start(startInfo);
             if (process == null)
             {
-                return Fail("pas.exe를 시작하지 못했습니다");
+                return Fail("pas.exe를 시작하지 못했습니다.");
             }
 
             var outputTask = process.StandardOutput.ReadToEndAsync();
@@ -90,7 +90,7 @@ internal sealed class PASRunner
         Directory.CreateDirectory(LogsDirectory());
         Directory.CreateDirectory(SnapshotsDirectory());
         CopyIfMissing(Path.Combine(AppContext.BaseDirectory, "config.example.toml"), ConfigPath());
-        CopyIfMissing(Path.Combine(AppContext.BaseDirectory, ".env.example"), EnvPath());
+        CopyIfMissing(Path.Combine(AppContext.BaseDirectory, "assignees.example.json"), AssigneesPath());
         CreateStateIfMissing();
     }
 
@@ -116,7 +116,7 @@ internal sealed class PASRunner
 
     private static string ConfigPath() => Path.Combine(SupportDirectory(), "config.toml");
 
-    private static string EnvPath() => Path.Combine(SupportDirectory(), ".env");
+    private static string AssigneesPath() => Path.Combine(SupportDirectory(), "assignees.json");
 
     private static string LogsDirectory() => Path.Combine(SupportDirectory(), "logs");
 

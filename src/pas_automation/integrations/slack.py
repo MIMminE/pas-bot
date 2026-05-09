@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import os
 from typing import Any
 
 from pas_automation.config import SlackConfig
@@ -9,9 +7,9 @@ from pas_automation.http import json_request
 
 class SlackWebhook:
     def __init__(self, config: SlackConfig) -> None:
-        webhook_url = os.environ.get(config.webhook_url_env)
+        webhook_url = config.webhook_url
         if not webhook_url:
-            raise RuntimeError(f"Missing Slack webhook environment variable: {config.webhook_url_env}")
+            raise RuntimeError("Slack Webhook URL이 설정되어 있지 않습니다. config.toml의 [slack].webhook_url 값을 입력해 주세요.")
         self.webhook_url = webhook_url
 
     def send(self, text: str, *, blocks: list[dict[str, Any]] | None = None) -> None:

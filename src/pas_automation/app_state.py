@@ -35,7 +35,8 @@ def init_app_data(*, template_dir: str | Path | None = None) -> Path:
 
     templates = Path(template_dir).resolve() if template_dir else Path.cwd()
     _copy_if_missing(templates / "config.example.toml", target / "config.toml")
-    _copy_if_missing(templates / ".env.example", target / ".env")
+    _copy_if_missing(templates / "assignees.example.json", target / "assignees.json")
+    _create_json_if_missing(target / "assignees.json", {})
     _create_state_if_missing(target / "state.json")
     return target
 
@@ -46,6 +47,10 @@ def default_config_path() -> Path:
 
 def default_env_path() -> Path:
     return app_data_dir() / ".env"
+
+
+def default_assignees_path() -> Path:
+    return app_data_dir() / "assignees.json"
 
 
 def _copy_if_missing(source: Path, destination: Path) -> None:
@@ -63,3 +68,9 @@ def _create_state_if_missing(destination: Path) -> None:
         "last_runs": {},
     }
     destination.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _create_json_if_missing(destination: Path, payload: dict) -> None:
+    if destination.exists():
+        return
+    destination.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

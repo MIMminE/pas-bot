@@ -1,5 +1,6 @@
 * text=auto
 
+.gitignore text eol=lf
 *.sh text eol=lf
 *.plist text eol=lf
 *.py text eol=lf
@@ -10,3 +11,4 @@
 *.swift text eol=lf
 *.cs text eol=lf
 *.csproj text eol=lf
+justfile text eol=lf

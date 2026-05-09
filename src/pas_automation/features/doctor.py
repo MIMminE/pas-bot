@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 from pas_automation.config import AppConfig
 from pas_automation.integrations.git_repos import discover_repositories
 
@@ -14,9 +12,10 @@ def run_doctor(config: AppConfig) -> str:
         _check("data_dir", True, str(config.general.data_dir)),
         _check("jira.base_url", bool(config.jira.base_url), config.jira.base_url),
         _check("jira.email", bool(config.jira.email), config.jira.email),
-        _check(config.jira.token_env, bool(os.environ.get(config.jira.token_env)), "환경변수 설정 필요"),
-        _check(config.slack.webhook_url_env, bool(os.environ.get(config.slack.webhook_url_env)), "환경변수 설정 필요"),
-        _check(config.openai.api_key_env, bool(os.environ.get(config.openai.api_key_env)), "선택 사항: AI 보고서 사용 시 필요"),
+        _secret_check("jira.api_token", bool(config.jira.api_token), "config.toml에 입력 필요"),
+        _secret_check("slack.webhook_url", bool(config.slack.webhook_url), "config.toml에 입력 필요"),
+        _secret_check("openai.api_key", bool(config.openai.api_key), "선택 사항: AI 보고서 사용 시 필요"),
+        _check("assignees.json", config.assignees_path.exists(), str(config.assignees_path)),
     ]
 
     repo_lines = []
@@ -46,3 +45,7 @@ def run_doctor(config: AppConfig) -> str:
 def _check(name: str, ok: bool, detail: str) -> str:
     status = "OK" if ok else "WARN"
     return f"[{status}] {name}: {detail}"
+
+
+def _secret_check(name: str, ok: bool, missing_detail: str) -> str:
+    return _check(name, ok, "설정됨" if ok else missing_detail)

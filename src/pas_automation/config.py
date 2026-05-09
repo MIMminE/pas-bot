@@ -18,7 +18,7 @@ class GeneralConfig:
 class JiraConfig:
     base_url: str
     email: str
-    token_env: str
+    api_token: str
     default_project: str
     todo_jql: str
     yesterday_assigned_jql: str
@@ -28,12 +28,12 @@ class JiraConfig:
 
 @dataclass(frozen=True)
 class SlackConfig:
-    webhook_url_env: str
+    webhook_url: str
 
 
 @dataclass(frozen=True)
 class OpenAIConfig:
-    api_key_env: str
+    api_key: str
     model: str
 
 
@@ -50,6 +50,7 @@ class AppConfig:
     jira: JiraConfig
     slack: SlackConfig
     openai: OpenAIConfig
+    assignees_path: Path
     repo_roots: list[RepoRoot]
 
 
@@ -59,6 +60,10 @@ def load_config(path: str | Path) -> AppConfig:
         raw = tomllib.load(fh)
 
     general_raw = raw.get("general", {})
+    jira_raw = raw.get("jira", {})
+    slack_raw = raw.get("slack", {})
+    openai_raw = raw.get("openai", {})
+
     data_dir = Path(general_raw.get("data_dir", ".pas"))
     if not data_dir.is_absolute():
         data_dir = config_path.parent / data_dir
@@ -83,35 +88,38 @@ def load_config(path: str | Path) -> AppConfig:
             data_dir=data_dir,
         ),
         jira=JiraConfig(
-            base_url=_env_or("JIRA_BASE_URL", raw["jira"]["base_url"]).rstrip("/"),
-            email=_env_or("JIRA_EMAIL", raw["jira"]["email"]),
-            token_env=raw["jira"].get("token_env", "JIRA_API_TOKEN"),
-            default_project=_env_or("JIRA_DEFAULT_PROJECT", raw["jira"].get("default_project", "")),
-            todo_jql=raw["jira"]["todo_jql"],
-            yesterday_assigned_jql=raw["jira"].get(
+            base_url=_config_or_env(jira_raw, "base_url", "JIRA_BASE_URL").rstrip("/"),
+            email=_config_or_env(jira_raw, "email", "JIRA_EMAIL"),
+            api_token=_config_or_env(jira_raw, "api_token", jira_raw.get("token_env", "JIRA_API_TOKEN")),
+            default_project=_config_or_env(jira_raw, "default_project", "JIRA_DEFAULT_PROJECT"),
+            todo_jql=jira_raw["todo_jql"],
+            yesterday_assigned_jql=jira_raw.get(
                 "yesterday_assigned_jql",
                 "assignee = currentUser() AND assignee CHANGED TO currentUser() DURING (startOfDay(-1), startOfDay())",
             ),
-            stale_jql=raw["jira"].get(
+            stale_jql=jira_raw.get(
                 "stale_jql",
                 "assignee = currentUser() AND statusCategory != Done AND updated <= -5d",
             ),
-            high_priority_jql=raw["jira"].get(
+            high_priority_jql=jira_raw.get(
                 "high_priority_jql",
                 "assignee = currentUser() AND statusCategory != Done AND priority in (Highest, High)",
             ),
         ),
         slack=SlackConfig(
-            webhook_url_env=raw["slack"].get("webhook_url_env", "SLACK_WEBHOOK_URL"),
+            webhook_url=_config_or_env(slack_raw, "webhook_url", slack_raw.get("webhook_url_env", "SLACK_WEBHOOK_URL")),
         ),
         openai=OpenAIConfig(
-            api_key_env=raw["openai"].get("api_key_env", "OPENAI_API_KEY"),
-            model=raw["openai"].get("model", "gpt-4.1-mini"),
+            api_key=_config_or_env(openai_raw, "api_key", openai_raw.get("api_key_env", "OPENAI_API_KEY")),
+            model=openai_raw.get("model", "gpt-5-mini"),
         ),
+        assignees_path=config_path.parent / "assignees.json",
         repo_roots=repo_roots,
     )
 
 
-def _env_or(name: str, default: str) -> str:
-    value = os.environ.get(name)
-    return value if value else default
+def _config_or_env(section: dict, key: str, env_name: str, default: str = "") -> str:
+    value = section.get(key)
+    if value:
+        return str(value)
+    return os.environ.get(env_name, default)

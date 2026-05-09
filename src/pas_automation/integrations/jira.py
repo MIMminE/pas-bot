@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import os
 from urllib.parse import quote
 
 from pas_automation.config import JiraConfig
@@ -9,9 +7,9 @@ from pas_automation.http import basic_auth_header, json_request
 
 class JiraClient:
     def __init__(self, config: JiraConfig) -> None:
-        token = os.environ.get(config.token_env)
+        token = config.api_token
         if not token:
-            raise RuntimeError(f"Missing Jira token environment variable: {config.token_env}")
+            raise RuntimeError("Jira API 토큰이 설정되어 있지 않습니다. config.toml의 [jira].api_token 값을 입력해 주세요.")
         self.config = config
         self.headers = {"Authorization": basic_auth_header(config.email, token)}
 

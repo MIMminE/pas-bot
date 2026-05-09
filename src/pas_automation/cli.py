@@ -4,10 +4,12 @@ import argparse
 
 from pas_automation.app_state import default_config_path, default_env_path, init_app_data
 from pas_automation.config import load_config
+from pas_automation.features.assignees import list_assignees
 from pas_automation.features.doctor import run_doctor
 from pas_automation.features.jira_daily import assign_issue, format_today_items
 from pas_automation.features.repo_report import report, snapshot
 from pas_automation.features.repo_status import summarize_repositories
+from pas_automation.features.settings_import import import_settings
 from pas_automation.features.slack_test import send_test_message
 from pas_automation.runtime_env import load_env_file
 
@@ -15,8 +17,8 @@ from pas_automation.runtime_env import load_env_file
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pas", description="Personal automation system")
     parser.add_argument("--config", help="Path to config.toml")
-    parser.add_argument("--env", help="Path to .env file")
-    parser.add_argument("--template-dir", help="Directory containing config.example.toml and .env.example")
+    parser.add_argument("--env", help="Optional legacy .env file")
+    parser.add_argument("--template-dir", help="Directory containing config.example.toml")
 
     subparsers = parser.add_subparsers(dest="area", required=True)
 
@@ -54,6 +56,14 @@ def build_parser() -> argparse.ArgumentParser:
     status = subparsers.add_parser("status", help="Local app status and diagnostics")
     status_sub = status.add_subparsers(dest="command", required=True)
     status_sub.add_parser("doctor", help="Check configuration and local repository roots")
+
+    settings = subparsers.add_parser("settings", help="Settings import and lookup")
+    settings_sub = settings.add_subparsers(dest="command", required=True)
+    settings_import = settings_sub.add_parser("import", help="Import config.toml or assignees.json")
+    settings_import.add_argument("--config-file", help="Path to config.toml to import")
+    settings_import.add_argument("--assignees-file", help="Path to assignees.json to import")
+    settings_assignees = settings_sub.add_parser("assignees", help="List Jira assignee aliases")
+    settings_assignees.add_argument("action", choices=["list"])
 
     return parser
 
@@ -107,6 +117,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.area == "status" and args.command == "doctor":
         print(run_doctor(config))
+        return 0
+
+    if args.area == "settings" and args.command == "import":
+        print(import_settings(config, config_file=args.config_file, assignees_file=args.assignees_file))
+        return 0
+
+    if args.area == "settings" and args.command == "assignees" and args.action == "list":
+        print(list_assignees(config))
         return 0
 
     raise RuntimeError("Unknown command")

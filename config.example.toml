@@ -7,7 +7,7 @@ data_dir = ".pas"
 [jira]
 base_url = "https://your-company.atlassian.net"
 email = "you@example.com"
-token_env = "JIRA_API_TOKEN"
+api_token = ""
 default_project = "OPS"
 todo_jql = "assignee = currentUser() AND statusCategory != Done ORDER BY priority DESC, updated DESC"
 yesterday_assigned_jql = "assignee = currentUser() AND assignee CHANGED TO currentUser() DURING (startOfDay(-1), startOfDay())"
@@ -15,10 +15,10 @@ stale_jql = "assignee = currentUser() AND statusCategory != Done AND updated <= 
 high_priority_jql = "assignee = currentUser() AND statusCategory != Done AND priority in (Highest, High)"
 
 [slack]
-webhook_url_env = "SLACK_WEBHOOK_URL"
+webhook_url = ""
 
 [openai]
-api_key_env = "OPENAI_API_KEY"
+api_key = ""
 model = "gpt-5-mini"
 
 [[repositories.roots]]

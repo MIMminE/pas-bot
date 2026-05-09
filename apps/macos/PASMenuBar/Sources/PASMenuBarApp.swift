@@ -48,6 +48,23 @@ struct PASMenuBarApp: App {
 
                 Divider()
 
+                Button("config.toml 가져오기") {
+                    runner.importConfigFile()
+                }
+                .disabled(runner.isRunning)
+
+                Button("담당자 파일 가져오기") {
+                    runner.importAssigneesFile()
+                }
+                .disabled(runner.isRunning)
+
+                Button("담당자 목록 보기") {
+                    runner.run(["settings", "assignees", "list"])
+                }
+                .disabled(runner.isRunning)
+
+                Divider()
+
                 Button("초기 설정 열기") {
                     runner.openSetupWindow()
                 }
@@ -55,6 +72,11 @@ struct PASMenuBarApp: App {
                 Button("설정 폴더 열기") {
                     runner.openSupportDirectory()
                 }
+
+                Button("마지막 실행 결과 보기") {
+                    runner.openLastOutputWindow()
+                }
+                .disabled(runner.lastOutput.isEmpty)
 
                 Button("마지막 실행 결과 복사") {
                     runner.copyLastOutput()
@@ -68,7 +90,7 @@ struct PASMenuBarApp: App {
                 }
             }
             .padding(.vertical, 4)
-            .frame(width: 240)
+            .frame(width: 260)
         }
         .menuBarExtraStyle(.menu)
     }

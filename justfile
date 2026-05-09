@@ -21,13 +21,13 @@ check:
 
 [unix]
 smoke:
-    PAS_APP_DATA_DIR=.pas-smoke {{py}} -m pas_automation.cli --template-dir . --config config.example.toml --env .env.example slack test --dry-run
-    PAS_APP_DATA_DIR=.pas-smoke {{py}} -m pas_automation.cli --template-dir . --config config.example.toml --env .env.example jira today --dry-run
+    PAS_APP_DATA_DIR=.pas-smoke {{py}} -m pas_automation.cli --template-dir . --config config.example.toml slack test --dry-run
+    PAS_APP_DATA_DIR=.pas-smoke {{py}} -m pas_automation.cli --template-dir . --config config.example.toml jira today --dry-run
 
 [windows]
 smoke:
-    powershell -NoProfile -Command "$env:PAS_APP_DATA_DIR='.pas-smoke'; {{py}} -m pas_automation.cli --template-dir . --config config.example.toml --env .env.example slack test --dry-run"
-    powershell -NoProfile -Command "$env:PAS_APP_DATA_DIR='.pas-smoke'; {{py}} -m pas_automation.cli --template-dir . --config config.example.toml --env .env.example jira today --dry-run"
+    powershell -NoProfile -Command "$env:PAS_APP_DATA_DIR='.pas-smoke'; {{py}} -m pas_automation.cli --template-dir . --config config.example.toml slack test --dry-run"
+    powershell -NoProfile -Command "$env:PAS_APP_DATA_DIR='.pas-smoke'; {{py}} -m pas_automation.cli --template-dir . --config config.example.toml jira today --dry-run"
 
 [windows]
 clean:

@@ -4,6 +4,7 @@ __pycache__/
 .pas-smoke/
 .env
 config.toml
+assignees.json
 .venv/
 *.zip
 build/

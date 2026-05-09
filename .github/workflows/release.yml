@@ -47,7 +47,7 @@ jobs:
           package="package-${{ matrix.name }}"
           mkdir -p "$package/bin"
           cp "dist/${{ matrix.exe }}" "$package/bin/"
-          cp README.md pyproject.toml config.example.toml .env.example "$package/"
+          cp README.md pyproject.toml config.example.toml assignees.example.json "$package/"
           cp -R docs launchd scripts "$package/"
 
       - name: Archive package on macOS
@@ -99,7 +99,7 @@ jobs:
           gh release create "$TAG_NAME" $files \
             --repo "$GITHUB_REPOSITORY" \
             --title "$TAG_NAME" \
-            --notes "PAS 자동화 릴리즈입니다. 실행 파일에는 필요한 런타임이 포함되어 있습니다. 비밀 설정은 포함되지 않으므로 각 기기에서 config.toml과 .env를 생성해 주세요."
+            --notes "PAS 자동화 릴리즈입니다. 실행 파일에는 필요한 런타임이 포함되어 있습니다. 비밀 설정은 포함되지 않으므로 각 기기에서 config.toml을 작성해 주세요."
 
   build-macos-menubar:
     name: Build macOS Menu Bar App
@@ -137,7 +137,7 @@ jobs:
           cp apps/macos/PASMenuBar/.build/release/PASMenuBar "$MACOS/PASMenuBar"
           cp dist/pas "$RESOURCES/bin/pas"
           cp config.example.toml "$RESOURCES/config.example.toml"
-          cp .env.example "$RESOURCES/.env.example"
+          cp assignees.example.json "$RESOURCES/assignees.example.json"
           chmod +x "$MACOS/PASMenuBar" "$RESOURCES/bin/pas"
           codesign --force --deep --sign - "$APP"
           codesign --verify --deep --strict "$APP"
@@ -186,7 +186,7 @@ jobs:
           Copy-Item publish\windows-tray\PASTray.exe package-windows-tray\
           Copy-Item dist\pas.exe package-windows-tray\bin\pas.exe
           Copy-Item config.example.toml package-windows-tray\
-          Copy-Item .env.example package-windows-tray\
+          Copy-Item assignees.example.json package-windows-tray\
           Copy-Item README.md package-windows-tray\
           Copy-Item docs package-windows-tray\docs -Recurse
           Compress-Archive -Path package-windows-tray\* -DestinationPath pas-windows-tray-x64.zip -Force

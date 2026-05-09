@@ -13,25 +13,18 @@ check_file() {
   fi
 }
 
-check_env() {
-  if [[ -z "${!1:-}" ]]; then
-    echo "missing env: $1"
-    missing=1
-  fi
-}
-
 check_file "$PROJECT_ROOT/config.toml"
-check_file "$PROJECT_ROOT/.env"
 
-if [[ -f "$PROJECT_ROOT/.env" ]]; then
-  while IFS='=' read -r key value; do
-    [[ -z "$key" || "$key" == \#* ]] && continue
-    export "$key=$value"
-  done < "$PROJECT_ROOT/.env"
+if [[ -f "$PROJECT_ROOT/config.toml" ]]; then
+  grep -q 'api_token = "[^"]' "$PROJECT_ROOT/config.toml" || {
+    echo "missing config: jira.api_token"
+    missing=1
+  }
+  grep -q 'webhook_url = "https://hooks.slack.com/services/' "$PROJECT_ROOT/config.toml" || {
+    echo "missing config: slack.webhook_url"
+    missing=1
+  }
 fi
-
-check_env JIRA_API_TOKEN
-check_env SLACK_WEBHOOK_URL
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "missing command: python3"

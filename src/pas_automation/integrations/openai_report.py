@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import os
-
 from pas_automation.config import OpenAIConfig
 from pas_automation.http import json_request
 
 
 def build_report(config: OpenAIConfig, commits_text: str) -> str:
-    api_key = os.environ.get(config.api_key_env)
+    api_key = config.api_key
     if not api_key:
         return fallback_report(commits_text)
 

@@ -11,6 +11,7 @@ final class PASRunner: ObservableObject {
 
     private let fileManager = FileManager.default
     private var setupWindow: NSWindow?
+    private var outputWindow: NSWindow?
 
     init() {
         try? prepareSupportFiles()
@@ -33,6 +34,12 @@ final class PASRunner: ObservableObject {
                 self.lastOutput = result.output
                 self.status = result.succeeded ? "성공" : "실패: \(result.summary)"
                 self.isRunning = false
+                if self.shouldShowOutput(arguments: arguments, succeeded: result.succeeded) {
+                    self.openOutputWindow(
+                        title: result.succeeded ? "PAS 실행 결과" : "PAS 오류 상세",
+                        output: result.output.isEmpty ? result.summary : result.output
+                    )
+                }
             }
         }
     }
@@ -47,6 +54,22 @@ final class PASRunner: ObservableObject {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(lastOutput, forType: .string)
         status = "마지막 실행 결과를 복사했습니다"
+    }
+
+    func openLastOutputWindow() {
+        openOutputWindow(title: "마지막 실행 결과", output: lastOutput)
+    }
+
+    func importConfigFile() {
+        selectFile(allowedExtensions: ["toml"]) { [weak self] url in
+            self?.run(["settings", "import", "--config-file", url.path])
+        }
+    }
+
+    func importAssigneesFile() {
+        selectFile(allowedExtensions: ["json"]) { [weak self] url in
+            self?.run(["settings", "import", "--assignees-file", url.path])
+        }
     }
 
     func openSetupWindow() {
@@ -86,10 +109,10 @@ final class PASRunner: ObservableObject {
 
     func loadSettings() -> PASSettings {
         PASSettings(
-            slackWebhookURL: readEnvValue("SLACK_WEBHOOK_URL"),
+            slackWebhookURL: readConfigValue(section: "slack", key: "webhook_url"),
             jiraBaseURL: readConfigValue(section: "jira", key: "base_url"),
             jiraEmail: readConfigValue(section: "jira", key: "email"),
-            jiraApiToken: readEnvValue("JIRA_API_TOKEN"),
+            jiraApiToken: readConfigValue(section: "jira", key: "api_token"),
             jiraDefaultProject: readConfigValue(section: "jira", key: "default_project")
         )
     }
@@ -97,12 +120,14 @@ final class PASRunner: ObservableObject {
     func saveSettings(_ settings: PASSettings) {
         do {
             try prepareSupportFiles()
-            try writeEnv(settings)
             try writeConfig(settings)
             try markSetupCompleted()
             status = "설정을 저장했습니다"
         } catch {
-            status = "설정 저장 실패: \(error.localizedDescription)"
+            let message = "설정 저장 실패: \(error.localizedDescription)"
+            status = message
+            lastOutput = message
+            openOutputWindow(title: "PAS 설정 오류", output: message)
         }
     }
 
@@ -115,9 +140,7 @@ final class PASRunner: ObservableObject {
         process.executableURL = executable.url
         process.arguments = executable.prefixArguments + [
             "--config",
-            configURL().path,
-            "--env",
-            envURL().path
+            configURL().path
         ] + arguments
         process.standardOutput = stdout
         process.standardError = stderr
@@ -138,6 +161,40 @@ final class PASRunner: ObservableObject {
         return (process.terminationStatus == 0, combined, summary.isEmpty ? "출력 없음" : summary)
     }
 
+    private func shouldShowOutput(arguments: [String], succeeded: Bool) -> Bool {
+        if !succeeded {
+            return true
+        }
+        if arguments.contains("--dry-run") {
+            return true
+        }
+        return arguments.first == "status" || arguments.first == "settings"
+    }
+
+    private func openOutputWindow(title: String, output: String) {
+        if let outputWindow {
+            outputWindow.title = title
+            outputWindow.contentView = NSHostingView(rootView: OutputView(output: output))
+            outputWindow.makeKeyAndOrderFront(nil)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = title
+        window.center()
+        window.contentView = NSHostingView(rootView: OutputView(output: output))
+        window.isReleasedWhenClosed = false
+        outputWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
     private nonisolated func prepareSupportFiles() throws {
         let directory = supportDirectory()
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -145,7 +202,7 @@ final class PASRunner: ObservableObject {
         try fileManager.createDirectory(at: snapshotsDirectory(), withIntermediateDirectories: true)
 
         copyExampleIfNeeded(resourcePath: "config.example.toml", to: configURL())
-        copyExampleIfNeeded(resourcePath: ".env.example", to: envURL())
+        copyExampleIfNeeded(resourcePath: "assignees.example.json", to: assigneesURL())
         createStateIfNeeded()
     }
 
@@ -173,8 +230,8 @@ final class PASRunner: ObservableObject {
         supportDirectory().appendingPathComponent("config.toml")
     }
 
-    private nonisolated func envURL() -> URL {
-        supportDirectory().appendingPathComponent(".env")
+    private nonisolated func assigneesURL() -> URL {
+        supportDirectory().appendingPathComponent("assignees.json")
     }
 
     private nonisolated func logsDirectory() -> URL {
@@ -215,19 +272,6 @@ final class PASRunner: ObservableObject {
         try payload.write(to: stateURL(), atomically: true, encoding: .utf8)
     }
 
-    private func readEnvValue(_ key: String) -> String {
-        guard let text = try? String(contentsOf: envURL(), encoding: .utf8) else { return "" }
-        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.hasPrefix("#"), let separator = trimmed.firstIndex(of: "=") else { continue }
-            let name = trimmed[..<separator].trimmingCharacters(in: .whitespaces)
-            if name == key {
-                return String(trimmed[trimmed.index(after: separator)...])
-            }
-        }
-        return ""
-    }
-
     private func readConfigValue(section: String, key: String) -> String {
         guard let text = try? String(contentsOf: configURL(), encoding: .utf8) else { return "" }
         var currentSection = ""
@@ -246,23 +290,13 @@ final class PASRunner: ObservableObject {
         return ""
     }
 
-    private func writeEnv(_ settings: PASSettings) throws {
-        let text = """
-        JIRA_BASE_URL=\(settings.jiraBaseURL)
-        JIRA_EMAIL=\(settings.jiraEmail)
-        JIRA_API_TOKEN=\(settings.jiraApiToken)
-        JIRA_DEFAULT_PROJECT=\(settings.jiraDefaultProject)
-        SLACK_WEBHOOK_URL=\(settings.slackWebhookURL)
-        OPENAI_API_KEY=\(readEnvValue("OPENAI_API_KEY"))
-        """
-        try text.write(to: envURL(), atomically: true, encoding: .utf8)
-    }
-
     private func writeConfig(_ settings: PASSettings) throws {
         guard var text = try? String(contentsOf: configURL(), encoding: .utf8) else { return }
         text = replaceConfigValue(text, section: "jira", key: "base_url", value: settings.jiraBaseURL)
         text = replaceConfigValue(text, section: "jira", key: "email", value: settings.jiraEmail)
+        text = replaceConfigValue(text, section: "jira", key: "api_token", value: settings.jiraApiToken)
         text = replaceConfigValue(text, section: "jira", key: "default_project", value: settings.jiraDefaultProject)
+        text = replaceConfigValue(text, section: "slack", key: "webhook_url", value: settings.slackWebhookURL)
         try text.write(to: configURL(), atomically: true, encoding: .utf8)
     }
 
@@ -294,6 +328,40 @@ final class PASRunner: ObservableObject {
 
     private func escapeToml(_ value: String) -> String {
         value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+    }
+
+    private func selectFile(allowedExtensions: [String], onSelect: @escaping (URL) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedFileTypes = allowedExtensions
+        if panel.runModal() == .OK, let url = panel.url {
+            onSelect(url)
+        }
+    }
+}
+
+struct OutputView: View {
+    let output: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("실행 결과")
+                .font(.headline)
+
+            ScrollView {
+                Text(output.isEmpty ? "출력 없음" : output)
+                    .font(.system(.body, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+            }
+            .background(Color(nsColor: .textBackgroundColor))
+            .border(Color(nsColor: .separatorColor))
+        }
+        .padding(16)
+        .frame(minWidth: 620, minHeight: 420)
     }
 }
 
