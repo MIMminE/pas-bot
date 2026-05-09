@@ -33,7 +33,7 @@ def json_request(
     try:
         with request.urlopen(req, timeout=timeout, context=_ssl_context()) as response:
             body = response.read().decode("utf-8")
-            return json.loads(body) if body else None
+            return _parse_response_body(body)
     except HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"{method} {url} failed with HTTP {exc.code}: {body}") from exc
@@ -55,3 +55,12 @@ def _ssl_context() -> ssl.SSLContext:
         return ssl.create_default_context(cafile=certifi.where())
     except Exception:
         return ssl.create_default_context()
+
+
+def _parse_response_body(body: str) -> Any:
+    if not body:
+        return None
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError:
+        return {"text": body}
