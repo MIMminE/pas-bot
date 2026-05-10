@@ -11,76 +11,117 @@ struct SetupView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("PAS 초기 설정")
-                .font(.title2)
-                .bold()
+        VStack(spacing: 0) {
+            header
 
-            Text("Jira 일감과 Slack 알림을 테스트하기 위한 최소 설정을 입력하세요.")
-                .foregroundStyle(.secondary)
-
-            GroupBox("Slack") {
-                VStack(alignment: .leading) {
-                    Text("수신 Webhook URL")
-                    TextField("https://hooks.slack.com/services/...", text: $settings.slackWebhookURL)
-                        .textFieldStyle(.roundedBorder)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    slackSection
+                    jiraSection
+                    developerSection
+                    automationSection
+                    testSection
                 }
-                .padding(.vertical, 4)
+                .padding(20)
             }
 
-            GroupBox("Jira") {
-                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
-                    GridRow {
-                        Text("기본 URL")
-                        TextField("https://start-today.atlassian.net", text: $settings.jiraBaseURL)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                    GridRow {
-                        Text("이메일")
-                        TextField("you@example.com", text: $settings.jiraEmail)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                    GridRow {
-                        Text("API Token")
-                        SecureField("Jira API 토큰", text: $settings.jiraApiToken)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                    GridRow {
-                        Text("기본 프로젝트")
-                        TextField("LMS", text: $settings.jiraDefaultProject)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                }
-                .padding(.vertical, 4)
+            footer
+        }
+        .frame(minWidth: 720, minHeight: 660)
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("PAS 설정 마법사")
+                    .font(.title2)
+                    .bold()
+
+                Text("Jira, Slack, GitHub, Git 작업 보고를 개인 개발 비서 흐름에 맞게 연결합니다.")
+                    .foregroundStyle(.secondary)
             }
 
-            HStack {
-                Button("설정 폴더 열기") {
-                    runner.openSupportDirectory()
-                }
+            Spacer()
 
-                Spacer()
+            statusPill
+        }
+        .padding(20)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
 
-                Button("저장") {
-                    runner.saveSettings(settings)
-                }
-                .keyboardShortcut(.defaultAction)
+    private var statusPill: some View {
+        Text(runner.status)
+            .font(.caption)
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
 
-                Button("저장 후 닫기") {
-                    runner.saveSettings(settings)
-                    runner.closeSetupWindow()
-                }
-                .disabled(!settings.isReadyForBasicTests)
+    private var slackSection: some View {
+        GroupBox("Slack 목적지") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("기능별로 다른 Slack 인바운드 웹훅을 지정할 수 있습니다. 비워두면 기본 웹훅을 사용합니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                WebhookField(title: "기본", text: $settings.slackDefaultWebhookURL)
+                WebhookField(title: "연결 테스트", text: $settings.slackTestWebhookURL)
+                WebhookField(title: "Jira 아침 브리핑", text: $settings.slackJiraWebhookURL)
+                WebhookField(title: "Git 오늘 한 일 보고", text: $settings.slackGitReportWebhookURL)
+                WebhookField(title: "Git 상태 점검", text: $settings.slackGitStatusWebhookURL)
+                WebhookField(title: "긴급 알림", text: $settings.slackAlertsWebhookURL)
             }
+            .padding(.vertical, 6)
+        }
+    }
 
-            Divider()
+    private var jiraSection: some View {
+        GroupBox("Jira") {
+            VStack(alignment: .leading, spacing: 10) {
+                SettingsTextField(title: "기본 URL", placeholder: "https://start-today.atlassian.net", text: $settings.jiraBaseURL)
+                SettingsTextField(title: "이메일", placeholder: "you@example.com", text: $settings.jiraEmail)
+                SettingsSecureField(title: "API Token", placeholder: "Jira API 토큰", text: $settings.jiraApiToken)
+                SettingsTextField(title: "기본 프로젝트", placeholder: "LMS", text: $settings.jiraDefaultProject)
+            }
+            .padding(.vertical, 6)
+        }
+    }
 
-            HStack {
+    private var developerSection: some View {
+        GroupBox("개발자 비서 확장") {
+            VStack(alignment: .leading, spacing: 10) {
+                SettingsTextField(title: "Git 작성자", placeholder: "git user.name 또는 email", text: $settings.gitAuthor)
+                SettingsTextField(title: "퇴근 기준 시간", placeholder: "18:00", text: $settings.workEndTime)
+                SettingsSecureField(title: "GitHub Token", placeholder: "GitHub fine-grained token", text: $settings.githubToken)
+                SettingsSecureField(title: "OpenAI API Key", placeholder: "Git 보고서 AI 요약 사용 시 입력", text: $settings.openAIKey)
+
+                Text("GitHub 저장소 목록과 로컬 repository root는 설정 폴더의 config.toml에서 계속 확장할 수 있습니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 6)
+        }
+    }
+
+    private var testSection: some View {
+        GroupBox("검증") {
+            HStack(spacing: 10) {
                 Button("Slack 테스트 전송") {
                     runner.saveSettings(settings)
                     runner.run(["slack", "test"])
                 }
-                .disabled(runner.isRunning || !settings.slackWebhookURL.hasPrefix("https://hooks.slack.com/services/"))
+                .disabled(runner.isRunning || !settings.isReadyForSlackTest)
+
+                Menu("목적지별 테스트") {
+                    Button("연결 테스트 채널") { runSlackTest("test") }
+                    Button("Jira 브리핑 채널") { runSlackTest("jira_daily") }
+                    Button("Git 보고 채널") { runSlackTest("git_report") }
+                    Button("Git 상태 채널") { runSlackTest("git_status") }
+                    Button("긴급 알림 채널") { runSlackTest("alerts") }
+                }
+                .disabled(runner.isRunning)
 
                 Button("Jira 미리보기") {
                     runner.saveSettings(settings)
@@ -88,15 +129,189 @@ struct SetupView: View {
                 }
                 .disabled(runner.isRunning || !settings.isReadyForBasicTests)
 
-                Spacer()
+                Button("설정 진단") {
+                    runner.saveSettings(settings)
+                    runner.run(["status", "doctor"])
+                }
+                .disabled(runner.isRunning)
 
-                Text(runner.status)
+                Button("스케줄 상태") {
+                    runner.saveSettings(settings)
+                    runner.run(["schedule", "status"])
+                }
+                .disabled(runner.isRunning)
+
+                Spacer()
+            }
+            .padding(.vertical, 6)
+        }
+    }
+
+    private var automationSection: some View {
+        GroupBox("자동 실행") {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("기능을 끄면 수동 실행과 자동 실행 대상에서 제외됩니다. 스케줄 등록은 기존 항목을 지우고 현재 설정으로 다시 등록합니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+
+                ScheduleRow(
+                    title: "Jira 아침 브리핑",
+                    featureEnabled: $settings.jiraDailyEnabled,
+                    scheduleEnabled: $settings.jiraDailyScheduleEnabled,
+                    time: $settings.jiraDailyScheduleTime,
+                    catchUp: $settings.jiraDailyCatchUp,
+                    placeholder: "09:00"
+                )
+
+                ScheduleRow(
+                    title: "Git 오늘 한 일 보고",
+                    featureEnabled: $settings.gitReportEnabled,
+                    scheduleEnabled: $settings.gitReportScheduleEnabled,
+                    time: $settings.gitReportScheduleTime,
+                    catchUp: $settings.gitReportCatchUp,
+                    placeholder: "18:30"
+                )
+
+                ScheduleRow(
+                    title: "Git 상태 점검",
+                    featureEnabled: $settings.gitStatusEnabled,
+                    scheduleEnabled: $settings.gitStatusScheduleEnabled,
+                    time: $settings.gitStatusScheduleTime,
+                    catchUp: $settings.gitStatusCatchUp,
+                    placeholder: "09:10"
+                )
+
+                HStack {
+                    Button("스케줄러 등록/갱신") {
+                        runner.saveSettings(settings)
+                        runner.run(["schedule", "install"])
+                    }
+                    .disabled(runner.isRunning)
+
+                    Button("스케줄러 제거") {
+                        runner.run(["schedule", "uninstall"])
+                    }
+                    .disabled(runner.isRunning)
+
+                    Button("자동 실행 테스트") {
+                        runner.saveSettings(settings)
+                        runner.run(["automation", "tick", "--dry-run"])
+                    }
+                    .disabled(runner.isRunning)
+
+                    Spacer()
+                }
             }
+            .padding(.vertical, 6)
+        }
+    }
+
+    private var footer: some View {
+        HStack {
+            Button("설정 폴더 열기") {
+                runner.openSupportDirectory()
+            }
+
+            Spacer()
+
+            Button("저장") {
+                runner.saveSettings(settings)
+            }
+            .keyboardShortcut(.defaultAction)
+
+            Button("저장 후 닫기") {
+                runner.saveSettings(settings)
+                runner.closeSetupWindow()
+            }
+            .disabled(!settings.isReadyForBasicTests)
         }
         .padding(20)
-        .frame(width: 560)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
+private struct SettingsTextField: View {
+    let title: String
+    let placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+            GridRow {
+                Text(title)
+                    .frame(width: 128, alignment: .leading)
+                TextField(placeholder, text: $text)
+                    .textFieldStyle(.roundedBorder)
+            }
+        }
+    }
+
+    private func runSlackTest(_ destination: String) {
+        runner.saveSettings(settings)
+        runner.run(["slack", "test", "--destination", destination])
+    }
+}
+
+private struct SettingsSecureField: View {
+    let title: String
+    let placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+            GridRow {
+                Text(title)
+                    .frame(width: 128, alignment: .leading)
+                SecureField(placeholder, text: $text)
+                    .textFieldStyle(.roundedBorder)
+            }
+        }
+    }
+}
+
+private struct WebhookField: View {
+    let title: String
+    @Binding var text: String
+
+    var body: some View {
+        SettingsTextField(
+            title: title,
+            placeholder: "https://hooks.slack.com/services/...",
+            text: $text
+        )
+    }
+}
+
+private struct ScheduleRow: View {
+    let title: String
+    @Binding var featureEnabled: Bool
+    @Binding var scheduleEnabled: Bool
+    @Binding var time: String
+    @Binding var catchUp: Bool
+    let placeholder: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle(title, isOn: $featureEnabled)
+                .font(.headline)
+
+            HStack(spacing: 12) {
+                Toggle("자동 전송", isOn: $scheduleEnabled)
+                    .disabled(!featureEnabled)
+
+                TextField(placeholder, text: $time)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 88)
+                    .disabled(!featureEnabled || !scheduleEnabled)
+
+                Toggle("놓친 경우 켜진 시점에 1회 전송", isOn: $catchUp)
+                    .disabled(!featureEnabled || !scheduleEnabled)
+
+                Spacer()
+            }
+        }
+        .padding(10)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }

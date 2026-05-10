@@ -80,8 +80,8 @@ final class PASRunner: ObservableObject {
         }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 520),
-            styleMask: [.titled, .closable, .miniaturizable],
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 720),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -109,11 +109,32 @@ final class PASRunner: ObservableObject {
 
     func loadSettings() -> PASSettings {
         PASSettings(
-            slackWebhookURL: readConfigValue(section: "slack", key: "webhook_url"),
+            slackDefaultWebhookURL: readConfigValue(section: "slack", key: "webhook_url"),
+            slackTestWebhookURL: readConfigValue(section: "slack.webhooks", key: "test"),
+            slackJiraWebhookURL: readConfigValue(section: "slack.webhooks", key: "jira_daily"),
+            slackGitReportWebhookURL: readConfigValue(section: "slack.webhooks", key: "git_report"),
+            slackGitStatusWebhookURL: readConfigValue(section: "slack.webhooks", key: "git_status"),
+            slackAlertsWebhookURL: readConfigValue(section: "slack.webhooks", key: "alerts"),
             jiraBaseURL: readConfigValue(section: "jira", key: "base_url"),
             jiraEmail: readConfigValue(section: "jira", key: "email"),
             jiraApiToken: readConfigValue(section: "jira", key: "api_token"),
-            jiraDefaultProject: readConfigValue(section: "jira", key: "default_project")
+            jiraDefaultProject: readConfigValue(section: "jira", key: "default_project"),
+            gitAuthor: readConfigValue(section: "general", key: "git_author"),
+            workEndTime: readConfigValue(section: "general", key: "work_end_time"),
+            githubToken: readConfigValue(section: "github", key: "token"),
+            openAIKey: readConfigValue(section: "openai", key: "api_key"),
+            jiraDailyEnabled: readBoolConfigValue(section: "features", key: "jira_daily", defaultValue: true),
+            gitReportEnabled: readBoolConfigValue(section: "features", key: "git_report", defaultValue: true),
+            gitStatusEnabled: readBoolConfigValue(section: "features", key: "git_status", defaultValue: true),
+            jiraDailyScheduleEnabled: readBoolConfigValue(section: "schedules.jira_daily", key: "enabled", defaultValue: false),
+            jiraDailyScheduleTime: readConfigValue(section: "schedules.jira_daily", key: "time"),
+            jiraDailyCatchUp: readBoolConfigValue(section: "schedules.jira_daily", key: "catch_up_if_missed", defaultValue: true),
+            gitReportScheduleEnabled: readBoolConfigValue(section: "schedules.git_report", key: "enabled", defaultValue: false),
+            gitReportScheduleTime: readConfigValue(section: "schedules.git_report", key: "time"),
+            gitReportCatchUp: readBoolConfigValue(section: "schedules.git_report", key: "catch_up_if_missed", defaultValue: true),
+            gitStatusScheduleEnabled: readBoolConfigValue(section: "schedules.git_status", key: "enabled", defaultValue: false),
+            gitStatusScheduleTime: readConfigValue(section: "schedules.git_status", key: "time"),
+            gitStatusCatchUp: readBoolConfigValue(section: "schedules.git_status", key: "catch_up_if_missed", defaultValue: true)
         )
     }
 
@@ -290,17 +311,55 @@ final class PASRunner: ObservableObject {
         return ""
     }
 
+    private func readBoolConfigValue(section: String, key: String, defaultValue: Bool) -> Bool {
+        let value = readConfigValue(section: section, key: key)
+        if value.isEmpty {
+            return defaultValue
+        }
+        return value.lowercased() == "true"
+    }
+
     private func writeConfig(_ settings: PASSettings) throws {
         guard var text = try? String(contentsOf: configURL(), encoding: .utf8) else { return }
+        text = replaceConfigValue(text, section: "general", key: "git_author", value: settings.gitAuthor)
+        text = replaceConfigValue(text, section: "general", key: "work_end_time", value: settings.workEndTime)
         text = replaceConfigValue(text, section: "jira", key: "base_url", value: settings.jiraBaseURL)
         text = replaceConfigValue(text, section: "jira", key: "email", value: settings.jiraEmail)
         text = replaceConfigValue(text, section: "jira", key: "api_token", value: settings.jiraApiToken)
         text = replaceConfigValue(text, section: "jira", key: "default_project", value: settings.jiraDefaultProject)
-        text = replaceConfigValue(text, section: "slack", key: "webhook_url", value: settings.slackWebhookURL)
+        text = replaceConfigValue(text, section: "slack", key: "webhook_url", value: settings.slackDefaultWebhookURL)
+        text = replaceConfigValue(text, section: "slack.webhooks", key: "default", value: settings.slackDefaultWebhookURL)
+        text = replaceConfigValue(text, section: "slack.webhooks", key: "test", value: settings.slackTestWebhookURL)
+        text = replaceConfigValue(text, section: "slack.webhooks", key: "jira_daily", value: settings.slackJiraWebhookURL)
+        text = replaceConfigValue(text, section: "slack.webhooks", key: "git_report", value: settings.slackGitReportWebhookURL)
+        text = replaceConfigValue(text, section: "slack.webhooks", key: "git_status", value: settings.slackGitStatusWebhookURL)
+        text = replaceConfigValue(text, section: "slack.webhooks", key: "alerts", value: settings.slackAlertsWebhookURL)
+        text = replaceConfigValue(text, section: "github", key: "token", value: settings.githubToken)
+        text = replaceConfigValue(text, section: "openai", key: "api_key", value: settings.openAIKey)
+        text = replaceConfigBoolValue(text, section: "features", key: "jira_daily", value: settings.jiraDailyEnabled)
+        text = replaceConfigBoolValue(text, section: "features", key: "git_report", value: settings.gitReportEnabled)
+        text = replaceConfigBoolValue(text, section: "features", key: "git_status", value: settings.gitStatusEnabled)
+        text = replaceConfigBoolValue(text, section: "schedules.jira_daily", key: "enabled", value: settings.jiraDailyScheduleEnabled)
+        text = replaceConfigValue(text, section: "schedules.jira_daily", key: "time", value: settings.jiraDailyScheduleTimeOrDefault)
+        text = replaceConfigBoolValue(text, section: "schedules.jira_daily", key: "catch_up_if_missed", value: settings.jiraDailyCatchUp)
+        text = replaceConfigBoolValue(text, section: "schedules.git_report", key: "enabled", value: settings.gitReportScheduleEnabled)
+        text = replaceConfigValue(text, section: "schedules.git_report", key: "time", value: settings.gitReportScheduleTimeOrDefault)
+        text = replaceConfigBoolValue(text, section: "schedules.git_report", key: "catch_up_if_missed", value: settings.gitReportCatchUp)
+        text = replaceConfigBoolValue(text, section: "schedules.git_status", key: "enabled", value: settings.gitStatusScheduleEnabled)
+        text = replaceConfigValue(text, section: "schedules.git_status", key: "time", value: settings.gitStatusScheduleTimeOrDefault)
+        text = replaceConfigBoolValue(text, section: "schedules.git_status", key: "catch_up_if_missed", value: settings.gitStatusCatchUp)
         try text.write(to: configURL(), atomically: true, encoding: .utf8)
     }
 
     private func replaceConfigValue(_ text: String, section: String, key: String, value: String) -> String {
+        replaceConfigLine(text, section: section, key: key, renderedValue: "\"\(escapeToml(value))\"")
+    }
+
+    private func replaceConfigBoolValue(_ text: String, section: String, key: String, value: Bool) -> String {
+        replaceConfigLine(text, section: section, key: key, renderedValue: value ? "true" : "false")
+    }
+
+    private func replaceConfigLine(_ text: String, section: String, key: String, renderedValue: String) -> String {
         var lines = text.components(separatedBy: .newlines)
         var currentSection = ""
         for index in lines.indices {
@@ -312,11 +371,33 @@ final class PASRunner: ObservableObject {
             guard currentSection == section, let separator = trimmed.firstIndex(of: "=") else { continue }
             let name = trimmed[..<separator].trimmingCharacters(in: .whitespaces)
             if name == key {
-                lines[index] = "\(key) = \"\(escapeToml(value))\""
-                break
+                lines[index] = "\(key) = \(renderedValue)"
+                return lines.joined(separator: "\n")
             }
         }
+        if !lines.contains(where: { $0.trimmingCharacters(in: .whitespaces) == "[\(section)]" }) {
+            if lines.last?.isEmpty == false {
+                lines.append("")
+            }
+            lines.append("[\(section)]")
+        }
+        if let sectionIndex = lines.lastIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "[\(section)]" }) {
+            let insertIndex = sectionEndIndex(in: lines, sectionStartIndex: sectionIndex)
+            lines.insert("\(key) = \(renderedValue)", at: insertIndex)
+        }
         return lines.joined(separator: "\n")
+    }
+
+    private func sectionEndIndex(in lines: [String], sectionStartIndex: Int) -> Int {
+        var index = sectionStartIndex + 1
+        while index < lines.count {
+            let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") {
+                break
+            }
+            index += 1
+        }
+        return index
     }
 
     private func unquote(_ value: String) -> String {
@@ -366,17 +447,62 @@ struct OutputView: View {
 }
 
 struct PASSettings {
-    var slackWebhookURL: String
+    var slackDefaultWebhookURL: String
+    var slackTestWebhookURL: String
+    var slackJiraWebhookURL: String
+    var slackGitReportWebhookURL: String
+    var slackGitStatusWebhookURL: String
+    var slackAlertsWebhookURL: String
     var jiraBaseURL: String
     var jiraEmail: String
     var jiraApiToken: String
     var jiraDefaultProject: String
+    var gitAuthor: String
+    var workEndTime: String
+    var githubToken: String
+    var openAIKey: String
+    var jiraDailyEnabled: Bool
+    var gitReportEnabled: Bool
+    var gitStatusEnabled: Bool
+    var jiraDailyScheduleEnabled: Bool
+    var jiraDailyScheduleTime: String
+    var jiraDailyCatchUp: Bool
+    var gitReportScheduleEnabled: Bool
+    var gitReportScheduleTime: String
+    var gitReportCatchUp: Bool
+    var gitStatusScheduleEnabled: Bool
+    var gitStatusScheduleTime: String
+    var gitStatusCatchUp: Bool
+
+    var testWebhookURL: String {
+        slackTestWebhookURL.isEmpty ? slackDefaultWebhookURL : slackTestWebhookURL
+    }
+
+    var jiraWebhookURL: String {
+        slackJiraWebhookURL.isEmpty ? slackDefaultWebhookURL : slackJiraWebhookURL
+    }
 
     var isReadyForBasicTests: Bool {
-        slackWebhookURL.hasPrefix("https://hooks.slack.com/services/")
+        jiraWebhookURL.hasPrefix("https://hooks.slack.com/services/")
             && jiraBaseURL.hasPrefix("https://")
             && jiraEmail.contains("@")
             && !jiraApiToken.isEmpty
             && !jiraDefaultProject.isEmpty
+    }
+
+    var isReadyForSlackTest: Bool {
+        testWebhookURL.hasPrefix("https://hooks.slack.com/services/")
+    }
+
+    var jiraDailyScheduleTimeOrDefault: String {
+        jiraDailyScheduleTime.isEmpty ? "09:00" : jiraDailyScheduleTime
+    }
+
+    var gitReportScheduleTimeOrDefault: String {
+        gitReportScheduleTime.isEmpty ? "18:30" : gitReportScheduleTime
+    }
+
+    var gitStatusScheduleTimeOrDefault: String {
+        gitStatusScheduleTime.isEmpty ? "09:10" : gitStatusScheduleTime
     }
 }
