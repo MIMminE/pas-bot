@@ -97,12 +97,22 @@ final class PASRunner: ObservableObject {
 
     func loadSettings() -> PASSettings {
         PASSettings(
+            slackMode: readConfigValue(section: "slack", key: "mode").isEmpty ? "webhook" : readConfigValue(section: "slack", key: "mode"),
             slackDefaultWebhookURL: readConfigValue(section: "slack", key: "webhook_url"),
+            slackBotToken: readConfigValue(section: "slack", key: "bot_token"),
             slackTestWebhookURL: readConfigValue(section: "slack.webhooks", key: "test"),
             slackJiraWebhookURL: readConfigValue(section: "slack.webhooks", key: "jira_daily"),
             slackGitReportWebhookURL: readConfigValue(section: "slack.webhooks", key: "git_report"),
             slackGitStatusWebhookURL: readConfigValue(section: "slack.webhooks", key: "git_status"),
             slackAlertsWebhookURL: readConfigValue(section: "slack.webhooks", key: "alerts"),
+            slackDefaultChannelID: readConfigValue(section: "slack.channels", key: "default"),
+            slackTestChannelID: readConfigValue(section: "slack.channels", key: "test"),
+            slackMorningChannelID: readConfigValue(section: "slack.channels", key: "morning_briefing"),
+            slackEveningChannelID: readConfigValue(section: "slack.channels", key: "evening_check"),
+            slackJiraChannelID: readConfigValue(section: "slack.channels", key: "jira_daily"),
+            slackGitReportChannelID: readConfigValue(section: "slack.channels", key: "git_report"),
+            slackGitStatusChannelID: readConfigValue(section: "slack.channels", key: "git_status"),
+            slackAlertsChannelID: readConfigValue(section: "slack.channels", key: "alerts"),
             jiraBaseURL: readConfigValue(section: "jira", key: "base_url"),
             jiraEmail: readConfigValue(section: "jira", key: "email"),
             jiraApiToken: readConfigValue(section: "jira", key: "api_token"),
@@ -138,6 +148,25 @@ final class PASRunner: ObservableObject {
             lastOutput = message
             openOutputWindow(title: "PAS 설정 오류", output: message)
         }
+    }
+
+    func loadSlackChannels(settings: PASSettings) -> [SlackChannel] {
+        saveSettings(settings)
+        let result = execute(["slack", "channels", "--format", "tsv"])
+        lastOutput = result.output
+        status = result.succeeded ? "Slack 채널 목록을 불러왔습니다" : "Slack 채널 조회 실패"
+        if !result.succeeded {
+            openOutputWindow(title: "Slack 채널 조회 오류", output: result.output.isEmpty ? result.summary : result.output)
+            return []
+        }
+        return result.output
+            .split(separator: "\n")
+            .compactMap { line in
+                let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
+                guard parts.count >= 2 else { return nil }
+                return SlackChannel(id: String(parts[0]), name: String(parts[1]), isPrivate: parts.count >= 3 && parts[2] == "true")
+            }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     private nonisolated func execute(_ arguments: [String]) -> (succeeded: Bool, output: String, summary: String) {
@@ -317,13 +346,23 @@ final class PASRunner: ObservableObject {
         text = replaceConfigValue(text, section: "jira", key: "email", value: settings.jiraEmail)
         text = replaceConfigValue(text, section: "jira", key: "api_token", value: settings.jiraApiToken)
         text = replaceConfigValue(text, section: "jira", key: "default_project", value: settings.jiraDefaultProject)
+        text = replaceConfigValue(text, section: "slack", key: "mode", value: settings.slackMode)
         text = replaceConfigValue(text, section: "slack", key: "webhook_url", value: settings.slackDefaultWebhookURL)
+        text = replaceConfigValue(text, section: "slack", key: "bot_token", value: settings.slackBotToken)
         text = replaceConfigValue(text, section: "slack.webhooks", key: "default", value: settings.slackDefaultWebhookURL)
         text = replaceConfigValue(text, section: "slack.webhooks", key: "test", value: settings.slackTestWebhookURL)
         text = replaceConfigValue(text, section: "slack.webhooks", key: "jira_daily", value: settings.slackJiraWebhookURL)
         text = replaceConfigValue(text, section: "slack.webhooks", key: "git_report", value: settings.slackGitReportWebhookURL)
         text = replaceConfigValue(text, section: "slack.webhooks", key: "git_status", value: settings.slackGitStatusWebhookURL)
         text = replaceConfigValue(text, section: "slack.webhooks", key: "alerts", value: settings.slackAlertsWebhookURL)
+        text = replaceConfigValue(text, section: "slack.channels", key: "default", value: settings.slackDefaultChannelID)
+        text = replaceConfigValue(text, section: "slack.channels", key: "test", value: settings.slackTestChannelID)
+        text = replaceConfigValue(text, section: "slack.channels", key: "morning_briefing", value: settings.slackMorningChannelID)
+        text = replaceConfigValue(text, section: "slack.channels", key: "evening_check", value: settings.slackEveningChannelID)
+        text = replaceConfigValue(text, section: "slack.channels", key: "jira_daily", value: settings.slackJiraChannelID)
+        text = replaceConfigValue(text, section: "slack.channels", key: "git_report", value: settings.slackGitReportChannelID)
+        text = replaceConfigValue(text, section: "slack.channels", key: "git_status", value: settings.slackGitStatusChannelID)
+        text = replaceConfigValue(text, section: "slack.channels", key: "alerts", value: settings.slackAlertsChannelID)
         text = replaceConfigValue(text, section: "github", key: "token", value: settings.githubToken)
         text = replaceConfigValue(text, section: "openai", key: "api_key", value: settings.openAIKey)
         text = replaceConfigBoolValue(text, section: "feature_groups", key: "jira", value: settings.jiraDailyEnabled)
@@ -440,12 +479,22 @@ struct OutputView: View {
 }
 
 struct PASSettings {
+    var slackMode: String
     var slackDefaultWebhookURL: String
+    var slackBotToken: String
     var slackTestWebhookURL: String
     var slackJiraWebhookURL: String
     var slackGitReportWebhookURL: String
     var slackGitStatusWebhookURL: String
     var slackAlertsWebhookURL: String
+    var slackDefaultChannelID: String
+    var slackTestChannelID: String
+    var slackMorningChannelID: String
+    var slackEveningChannelID: String
+    var slackJiraChannelID: String
+    var slackGitReportChannelID: String
+    var slackGitStatusChannelID: String
+    var slackAlertsChannelID: String
     var jiraBaseURL: String
     var jiraEmail: String
     var jiraApiToken: String
@@ -475,8 +524,20 @@ struct PASSettings {
         slackJiraWebhookURL.isEmpty ? slackDefaultWebhookURL : slackJiraWebhookURL
     }
 
+    var testChannelID: String {
+        slackTestChannelID.isEmpty ? slackDefaultChannelID : slackTestChannelID
+    }
+
+    var jiraChannelID: String {
+        slackJiraChannelID.isEmpty ? slackDefaultChannelID : slackJiraChannelID
+    }
+
+    var usesSlackOAuth: Bool {
+        slackMode == "oauth"
+    }
+
     var isReadyForBasicTests: Bool {
-        jiraWebhookURL.hasPrefix("https://hooks.slack.com/services/")
+        slackJiraReady
             && jiraBaseURL.hasPrefix("https://")
             && jiraEmail.contains("@")
             && !jiraApiToken.isEmpty
@@ -484,7 +545,17 @@ struct PASSettings {
     }
 
     var isReadyForSlackTest: Bool {
-        testWebhookURL.hasPrefix("https://hooks.slack.com/services/")
+        if usesSlackOAuth {
+            return !slackBotToken.isEmpty && !testChannelID.isEmpty
+        }
+        return testWebhookURL.hasPrefix("https://hooks.slack.com/services/")
+    }
+
+    private var slackJiraReady: Bool {
+        if usesSlackOAuth {
+            return !slackBotToken.isEmpty && !jiraChannelID.isEmpty
+        }
+        return jiraWebhookURL.hasPrefix("https://hooks.slack.com/services/")
     }
 
     var jiraDailyScheduleTimeOrDefault: String {
@@ -497,5 +568,15 @@ struct PASSettings {
 
     var gitStatusScheduleTimeOrDefault: String {
         gitStatusScheduleTime.isEmpty ? "09:10" : gitStatusScheduleTime
+    }
+}
+
+struct SlackChannel: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let isPrivate: Bool
+
+    var label: String {
+        "#\(name)\(isPrivate ? " (private)" : "")"
     }
 }

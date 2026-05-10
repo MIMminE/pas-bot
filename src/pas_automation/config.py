@@ -28,11 +28,22 @@ class JiraConfig:
 
 @dataclass(frozen=True)
 class SlackConfig:
+    mode: str
     webhook_url: str
     webhooks: dict[str, str]
+    bot_token: str
+    channels: dict[str, str]
 
     def webhook_for(self, destination: str = "default") -> str:
         return self.webhooks.get(destination) or self.webhook_url
+
+    def channel_for(self, destination: str = "default") -> str:
+        return self.channels.get(destination) or self.channels.get("default", "")
+
+    def destination_configured(self, destination: str = "default") -> bool:
+        if self.mode == "oauth":
+            return bool(self.bot_token and self.channel_for(destination))
+        return bool(self.webhook_for(destination))
 
 
 @dataclass(frozen=True)
@@ -151,6 +162,7 @@ def load_config(path: str | Path) -> AppConfig:
     jira_raw = raw.get("jira", {})
     slack_raw = raw.get("slack", {})
     slack_webhooks_raw = slack_raw.get("webhooks", {})
+    slack_channels_raw = slack_raw.get("channels", {})
     openai_raw = raw.get("openai", {})
     github_raw = raw.get("github", {})
     calendar_raw = raw.get("calendar", {})
@@ -201,9 +213,24 @@ def load_config(path: str | Path) -> AppConfig:
             ),
         ),
         slack=SlackConfig(
+            mode=str(slack_raw.get("mode", "webhook")),
             webhook_url=_config_or_env(slack_raw, "webhook_url", slack_raw.get("webhook_url_env", "SLACK_WEBHOOK_URL")),
             webhooks={
                 str(key): _config_or_env(slack_webhooks_raw, str(key), "")
+                for key in (
+                    "default",
+                    "test",
+                    "morning_briefing",
+                    "evening_check",
+                    "jira_daily",
+                    "git_report",
+                    "git_status",
+                    "alerts",
+                )
+            },
+            bot_token=_config_or_env(slack_raw, "bot_token", slack_raw.get("bot_token_env", "SLACK_BOT_TOKEN")),
+            channels={
+                str(key): str(slack_channels_raw.get(str(key), ""))
                 for key in (
                     "default",
                     "test",

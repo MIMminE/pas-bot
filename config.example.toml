@@ -30,11 +30,26 @@ stale_jql = "assignee = currentUser() AND statusCategory != Done AND updated <= 
 high_priority_jql = "assignee = currentUser() AND statusCategory != Done AND priority in (Highest, High)"
 
 [slack]
-# 기본 Slack 인바운드 웹훅입니다. 기능별 웹훅이 비어 있으면 이 값을 사용합니다.
+# Slack 연결 방식입니다. "webhook"은 기존 인바운드 웹훅, "oauth"는 Bot Token과 채널 ID를 사용합니다.
+mode = "webhook"
+# 기본 Slack 인바운드 웹훅입니다. webhook 모드에서 기능별 웹훅이 비어 있으면 이 값을 사용합니다.
 webhook_url = ""
+# Slack Bot User OAuth Token입니다. oauth 모드에서 chat.postMessage와 채널 목록 조회에 사용합니다.
+bot_token = ""
 
 [slack.webhooks]
-# 기능별 Slack 목적지입니다. 서로 다른 채널로 보내고 싶을 때 각각 입력합니다.
+# webhook 모드의 기능별 Slack 목적지입니다.
+default = ""
+test = ""
+morning_briefing = ""
+evening_check = ""
+jira_daily = ""
+git_report = ""
+git_status = ""
+alerts = ""
+
+[slack.channels]
+# oauth 모드의 기능별 Slack 채널 ID입니다. 설정 마법사에서 채널 목록을 불러와 선택할 수 있습니다.
 default = ""
 test = ""
 morning_briefing = ""

@@ -9,10 +9,10 @@ from pas_automation.integrations.slack import SlackWebhook, context_block, heade
 
 def send_test_message(config: AppConfig, *, dry_run: bool, destination: str = "test") -> str:
     now = datetime.now(ZoneInfo(config.general.timezone)).strftime("%Y-%m-%d %H:%M:%S")
-    message = f"PAS Slack webhook test ({destination}) - {now}"
+    message = f"PAS Slack connection test ({destination}) - {now}"
     blocks = [
         header_block("PAS 연결 테스트"),
-        section_block(f"*Slack webhook 연결이 정상입니다.*\n목적지: `{destination}`"),
+        section_block(f"*Slack 연결이 정상입니다.*\n목적지: `{destination}`\n연결 방식: `{config.slack.mode}`"),
         context_block(f"전송 시각: {now} | timezone: {config.general.timezone}"),
     ]
     if dry_run:

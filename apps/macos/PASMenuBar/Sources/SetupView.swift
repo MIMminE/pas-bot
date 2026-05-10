@@ -4,6 +4,7 @@ struct SetupView: View {
     @ObservedObject var runner: PASRunner
 
     @State private var settings: PASSettings
+    @State private var slackChannels: [SlackChannel] = []
 
     init(runner: PASRunner) {
         self.runner = runner
@@ -62,16 +63,59 @@ struct SetupView: View {
     private var slackSection: some View {
         GroupBox("Slack 목적지") {
             VStack(alignment: .leading, spacing: 10) {
-                Text("기능별로 다른 Slack 인바운드 웹훅을 지정할 수 있습니다. 비워두면 기본 웹훅을 사용합니다.")
+                Text("웹훅 직접 입력 또는 Slack 앱 연결 방식으로 기능별 전송 채널을 지정합니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                WebhookField(title: "기본", text: $settings.slackDefaultWebhookURL)
-                WebhookField(title: "연결 테스트", text: $settings.slackTestWebhookURL)
-                WebhookField(title: "Jira 아침 브리핑", text: $settings.slackJiraWebhookURL)
-                WebhookField(title: "Git 오늘 한 일 보고", text: $settings.slackGitReportWebhookURL)
-                WebhookField(title: "Git 상태 점검", text: $settings.slackGitStatusWebhookURL)
-                WebhookField(title: "긴급 알림", text: $settings.slackAlertsWebhookURL)
+                Picker("연결 방식", selection: $settings.slackMode) {
+                    Text("Webhook 직접 입력").tag("webhook")
+                    Text("Slack 앱 연결").tag("oauth")
+                }
+                .pickerStyle(.segmented)
+
+                if settings.usesSlackOAuth {
+                    SettingsSecureField(title: "Bot Token", placeholder: "xoxb-...", text: $settings.slackBotToken)
+
+                    HStack {
+                        Button("채널 목록 불러오기") {
+                            slackChannels = runner.loadSlackChannels(settings: settings)
+                        }
+                        .disabled(runner.isRunning || settings.slackBotToken.isEmpty)
+
+                        Text("Slack App 권한: chat:write, channels:read, groups:read")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Spacer()
+                    }
+
+                    if slackChannels.isEmpty {
+                        ChannelIdField(title: "기본", text: $settings.slackDefaultChannelID)
+                        ChannelIdField(title: "연결 테스트", text: $settings.slackTestChannelID)
+                        ChannelIdField(title: "출근 브리핑", text: $settings.slackMorningChannelID)
+                        ChannelIdField(title: "퇴근 체크", text: $settings.slackEveningChannelID)
+                        ChannelIdField(title: "Jira 아침 브리핑", text: $settings.slackJiraChannelID)
+                        ChannelIdField(title: "Git 오늘 한 일 보고", text: $settings.slackGitReportChannelID)
+                        ChannelIdField(title: "Git 상태 점검", text: $settings.slackGitStatusChannelID)
+                        ChannelIdField(title: "긴급 알림", text: $settings.slackAlertsChannelID)
+                    } else {
+                        ChannelPicker(title: "기본", channels: slackChannels, selection: $settings.slackDefaultChannelID)
+                        ChannelPicker(title: "연결 테스트", channels: slackChannels, selection: $settings.slackTestChannelID)
+                        ChannelPicker(title: "출근 브리핑", channels: slackChannels, selection: $settings.slackMorningChannelID)
+                        ChannelPicker(title: "퇴근 체크", channels: slackChannels, selection: $settings.slackEveningChannelID)
+                        ChannelPicker(title: "Jira 아침 브리핑", channels: slackChannels, selection: $settings.slackJiraChannelID)
+                        ChannelPicker(title: "Git 오늘 한 일 보고", channels: slackChannels, selection: $settings.slackGitReportChannelID)
+                        ChannelPicker(title: "Git 상태 점검", channels: slackChannels, selection: $settings.slackGitStatusChannelID)
+                        ChannelPicker(title: "긴급 알림", channels: slackChannels, selection: $settings.slackAlertsChannelID)
+                    }
+                } else {
+                    WebhookField(title: "기본", text: $settings.slackDefaultWebhookURL)
+                    WebhookField(title: "연결 테스트", text: $settings.slackTestWebhookURL)
+                    WebhookField(title: "Jira 아침 브리핑", text: $settings.slackJiraWebhookURL)
+                    WebhookField(title: "Git 오늘 한 일 보고", text: $settings.slackGitReportWebhookURL)
+                    WebhookField(title: "Git 상태 점검", text: $settings.slackGitStatusWebhookURL)
+                    WebhookField(title: "긴급 알림", text: $settings.slackAlertsWebhookURL)
+                }
             }
             .padding(.vertical, 6)
         }
@@ -279,6 +323,42 @@ private struct WebhookField: View {
             placeholder: "https://hooks.slack.com/services/...",
             text: $text
         )
+    }
+}
+
+private struct ChannelIdField: View {
+    let title: String
+    @Binding var text: String
+
+    var body: some View {
+        SettingsTextField(
+            title: title,
+            placeholder: "C0123456789",
+            text: $text
+        )
+    }
+}
+
+private struct ChannelPicker: View {
+    let title: String
+    let channels: [SlackChannel]
+    @Binding var selection: String
+
+    var body: some View {
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+            GridRow {
+                Text(title)
+                    .frame(width: 128, alignment: .leading)
+                Picker(title, selection: $selection) {
+                    Text("기본 채널 사용").tag("")
+                    ForEach(channels) { channel in
+                        Text(channel.label).tag(channel.id)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
     }
 }
 

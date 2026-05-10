@@ -16,6 +16,7 @@ from pas_automation.features.repo_status import summarize_repositories
 from pas_automation.features.scheduler import install_schedules, schedule_status, uninstall_schedules
 from pas_automation.features.settings_import import import_settings
 from pas_automation.features.slack_test import send_test_message
+from pas_automation.integrations.slack import list_channels
 from pas_automation.runtime_env import load_env_file
 
 
@@ -48,6 +49,8 @@ def build_parser() -> argparse.ArgumentParser:
         default="test",
         help="전송할 Slack 목적지 키: test, jira_daily, git_report, git_status, alerts, default",
     )
+    slack_channels = slack_sub.add_parser("channels", help="Slack OAuth 채널 목록 조회")
+    slack_channels.add_argument("--format", choices=["text", "tsv"], default="text", help="출력 형식")
 
     repo = subparsers.add_parser("repo", help="Git repository 자동화")
     repo_sub = repo.add_subparsers(dest="command", required=True)
@@ -163,6 +166,15 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.area == "slack" and args.command == "test":
         print(send_test_message(config, dry_run=args.dry_run, destination=args.destination))
+        return 0
+
+    if args.area == "slack" and args.command == "channels":
+        channels = list_channels(config.slack)
+        if args.format == "tsv":
+            print("\n".join(f"{item['id']}\t{item['name']}\t{item['is_private']}" for item in channels))
+        else:
+            print("Slack 채널 목록")
+            print("\n".join(f"- #{item['name']} ({item['id']})" for item in channels))
         return 0
 
     if args.area == "repo" and args.command == "snapshot":

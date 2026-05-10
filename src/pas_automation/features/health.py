@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pas_automation.config import AppConfig
 from pas_automation.http import json_request
 from pas_automation.integrations.jira import JiraClient
-from pas_automation.integrations.slack import SlackWebhook, header_block, section_block
+from pas_automation.integrations.slack import SlackWebhook, header_block, list_channels, section_block
 
 
 @dataclass(frozen=True)
@@ -35,8 +35,8 @@ def _required_setting_checks(config: AppConfig) -> list[HealthCheck]:
         _required("jira.base_url", config.jira.base_url, "Jira 사이트 URL 필요"),
         _required("jira.email", config.jira.email, "Jira 계정 이메일 필요"),
         _required("jira.api_token", config.jira.api_token, "Jira API 토큰 필요"),
-        _required("slack.webhooks.alerts", config.slack.webhook_for("alerts"), "실패 알림 Slack 웹훅 권장"),
-        _required("slack.webhooks.jira_daily", config.slack.webhook_for("jira_daily"), "Jira 브리핑 Slack 목적지 필요"),
+        _required("slack.alerts", config.slack.destination_configured("alerts"), "실패 알림 Slack 목적지 권장"),
+        _required("slack.jira_daily", config.slack.destination_configured("jira_daily"), "Jira 브리핑 Slack 목적지 필요"),
         _optional("github.token", config.github.token, "private repository/PR 조회 시 필요"),
         _optional("openai.api_key", config.openai.api_key, "AI 초안 생성 시 필요"),
     ]
@@ -71,8 +71,14 @@ def _check_jira(config: AppConfig) -> HealthCheck:
 
 
 def _check_slack(config: AppConfig, destination: str) -> HealthCheck:
-    if not config.slack.webhook_for(destination):
-        return HealthCheck(f"slack.{destination}", "FAIL", f"{destination} Slack 웹훅 설정 필요")
+    if not config.slack.destination_configured(destination):
+        return HealthCheck(f"slack.{destination}", "FAIL", f"{destination} Slack 목적지 설정 필요")
+    if config.slack.mode == "oauth":
+        try:
+            count = len(list_channels(config.slack))
+            return HealthCheck(f"slack.{destination}", "OK", f"Slack OAuth 연결 정상: 채널 {count}개 조회")
+        except Exception as exc:
+            return HealthCheck(f"slack.{destination}", "FAIL", str(exc))
     return HealthCheck(f"slack.{destination}", "OK", "Slack 웹훅 형식 확인")
 
 
