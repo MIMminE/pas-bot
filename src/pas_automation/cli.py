@@ -17,6 +17,7 @@ from pas_automation.features.repo_status import summarize_repositories
 from pas_automation.features.scheduler import install_schedules, schedule_status, uninstall_schedules
 from pas_automation.features.settings_import import import_settings
 from pas_automation.features.slack_test import send_test_message
+from pas_automation.integrations.github import GitHubClient
 from pas_automation.integrations.slack import list_channels
 from pas_automation.runtime_env import load_env_file
 
@@ -75,6 +76,9 @@ def build_parser() -> argparse.ArgumentParser:
     repo_remote_status = repo_sub.add_parser("remote-status", help="GitHub 원격 브랜치 리베이스/PR 상태 점검")
     repo_remote_status.add_argument("--send-slack", action="store_true", help="Slack으로 실제 전송")
     repo_remote_status.add_argument("--dry-run", action="store_true", help="외부 전송 없이 미리보기")
+
+    repo_remote_list = repo_sub.add_parser("remote-list", help="GitHub 토큰으로 접근 가능한 repository 목록 조회")
+    repo_remote_list.add_argument("--format", choices=["text", "tsv"], default="text", help="출력 형식")
 
     automation = subparsers.add_parser("automation", help="스케줄러가 호출하는 자동 실행")
     automation_sub = automation.add_subparsers(dest="command", required=True)
@@ -213,6 +217,18 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.area == "repo" and args.command == "remote-status":
         print(remote_branch_status(config, send_slack=args.send_slack, dry_run=args.dry_run))
+        return 0
+
+    if args.area == "repo" and args.command == "remote-list":
+        if not config.github.token:
+            print("GitHub 토큰 없음: repository 목록을 불러올 수 없습니다.")
+            return 0
+        repos = GitHubClient(config.github).list_repositories()
+        if args.format == "tsv":
+            print("\n".join(f"{item.owner}\t{item.name}\t{item.private}\t{item.default_branch}\t{item.url}" for item in repos))
+        else:
+            print("GitHub repository 목록")
+            print("\n".join(f"- {item.full_name} ({'private' if item.private else 'public'})" for item in repos))
         return 0
 
     if args.area == "automation" and args.command == "tick":

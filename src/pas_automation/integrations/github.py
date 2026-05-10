@@ -79,6 +79,16 @@ class GitHubBranchStatus:
         return "기본 브랜치와 동일"
 
 
+@dataclass(frozen=True)
+class GitHubRepositoryOption:
+    owner: str
+    name: str
+    full_name: str
+    private: bool
+    default_branch: str
+    url: str
+
+
 class GitHubClient:
     def __init__(self, config: GitHubConfig) -> None:
         self.config = config
@@ -111,6 +121,43 @@ class GitHubClient:
     def current_user(self) -> str:
         payload = json_request("GET", "https://api.github.com/user", headers=self.headers, timeout=30)
         return str(payload.get("login", "")) if isinstance(payload, dict) else ""
+
+    def list_repositories(self, *, max_pages: int = 10) -> list[GitHubRepositoryOption]:
+        items: list[GitHubRepositoryOption] = []
+        for page in range(1, max_pages + 1):
+            query = {
+                "visibility": "all",
+                "affiliation": "owner,collaborator,organization_member",
+                "sort": "updated",
+                "per_page": "100",
+                "page": str(page),
+            }
+            payload = json_request(
+                "GET",
+                f"https://api.github.com/user/repos?{urlencode(query)}",
+                headers=self.headers,
+                timeout=30,
+            )
+            if not isinstance(payload, list) or not payload:
+                break
+            for repo in payload:
+                owner = str((repo.get("owner", {}) or {}).get("login", ""))
+                name = str(repo.get("name", ""))
+                if not owner or not name:
+                    continue
+                items.append(
+                    GitHubRepositoryOption(
+                        owner=owner,
+                        name=name,
+                        full_name=str(repo.get("full_name", f"{owner}/{name}")),
+                        private=bool(repo.get("private", False)),
+                        default_branch=str(repo.get("default_branch", "")),
+                        url=str(repo.get("html_url", "")),
+                    )
+                )
+            if len(payload) < 100:
+                break
+        return items
 
     def commits_since(self, since_iso: str, *, author: str = "", max_per_repo: int = 30) -> list[GitHubCommit]:
         items: list[GitHubCommit] = []

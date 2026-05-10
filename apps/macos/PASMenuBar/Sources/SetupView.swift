@@ -5,6 +5,7 @@ struct SetupView: View {
 
     @State private var settings: PASSettings
     @State private var slackChannels: [SlackChannel] = []
+    @State private var githubRepositories: [GitHubRepositoryOption] = []
 
     init(runner: PASRunner) {
         self.runner = runner
@@ -186,6 +187,31 @@ struct SetupView: View {
                     ],
                     runner: runner
                 )
+
+                HStack {
+                    Button("GitHub 레포 목록 불러오기") {
+                        githubRepositories = runner.loadGitHubRepositories(settings: settings)
+                    }
+                    .disabled(runner.isRunning || settings.githubToken.isEmpty)
+
+                    Text("선택한 레포 \(settings.githubRepositoryIDs.count)개")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+                }
+
+                if githubRepositories.isEmpty {
+                    Text(settings.githubRepositoryIDs.isEmpty ? "아직 선택한 원격 repository가 없습니다." : "저장된 원격 repository: \(settings.githubRepositoryIDs.sorted().joined(separator: \", \"))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    GitHubRepositoryPicker(
+                        repositories: githubRepositories,
+                        selectedIDs: $settings.githubRepositoryIDs
+                    )
+                }
             }
             .padding(.vertical, 6)
         }
@@ -442,6 +468,57 @@ private struct ChannelPicker: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+}
+
+private struct GitHubRepositoryPicker: View {
+    let repositories: [GitHubRepositoryOption]
+    @Binding var selectedIDs: Set<String>
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("관리할 원격 repository")
+                    .font(.subheadline)
+                    .bold()
+
+                Spacer()
+
+                Button("전체 선택") {
+                    selectedIDs = Set(repositories.map(\.id))
+                }
+
+                Button("전체 해제") {
+                    selectedIDs.removeAll()
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(repositories) { repo in
+                    Toggle(isOn: Binding(
+                        get: { selectedIDs.contains(repo.id) },
+                        set: { isSelected in
+                            if isSelected {
+                                selectedIDs.insert(repo.id)
+                            } else {
+                                selectedIDs.remove(repo.id)
+                            }
+                        }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(repo.label)
+                                .font(.body)
+                            Text("기본 브랜치: \(repo.defaultBranch.isEmpty ? "-" : repo.defaultBranch)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 

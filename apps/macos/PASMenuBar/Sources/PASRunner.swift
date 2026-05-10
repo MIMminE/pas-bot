@@ -125,6 +125,7 @@ final class PASRunner: ObservableObject {
             gitAuthor: readConfigValue(section: "general", key: "git_author"),
             workEndTime: readConfigValue(section: "general", key: "work_end_time"),
             githubToken: readConfigValue(section: "github", key: "token"),
+            githubRepositoryIDs: Set(readGitHubRepositories().map { $0.id }),
             openAIKey: readConfigValue(section: "openai", key: "api_key"),
             jiraDailyEnabled: readBoolConfigValue(section: "feature_groups", key: "jira", defaultValue: true),
             gitReportEnabled: readBoolConfigValue(section: "feature_groups", key: "git", defaultValue: true),
@@ -172,6 +173,31 @@ final class PASRunner: ObservableObject {
                 return SlackChannel(id: String(parts[0]), name: String(parts[1]), isPrivate: parts.count >= 3 && parts[2] == "true")
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    func loadGitHubRepositories(settings: PASSettings) -> [GitHubRepositoryOption] {
+        saveSettings(settings)
+        let result = execute(["repo", "remote-list", "--format", "tsv"])
+        lastOutput = result.output
+        status = result.succeeded ? "GitHub repository 목록을 불러왔습니다" : "GitHub repository 조회 실패"
+        if !result.succeeded {
+            openOutputWindow(title: "GitHub repository 조회 오류", output: result.output.isEmpty ? result.summary : result.output)
+            return []
+        }
+        return result.output
+            .split(separator: "\n")
+            .compactMap { line in
+                let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
+                guard parts.count >= 2 else { return nil }
+                return GitHubRepositoryOption(
+                    owner: String(parts[0]),
+                    name: String(parts[1]),
+                    isPrivate: parts.count >= 3 && parts[2].lowercased() == "true",
+                    defaultBranch: parts.count >= 4 ? String(parts[3]) : "",
+                    url: parts.count >= 5 ? String(parts[4]) : ""
+                )
+            }
+            .sorted { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
     }
 
     private nonisolated func execute(_ arguments: [String]) -> (succeeded: Bool, output: String, summary: String) {
@@ -343,6 +369,52 @@ final class PASRunner: ObservableObject {
         return value.lowercased() == "true"
     }
 
+    private func readGitHubRepositories() -> [GitHubRepositoryOption] {
+        guard let text = try? String(contentsOf: configURL(), encoding: .utf8) else { return [] }
+        var repositories: [GitHubRepositoryOption] = []
+        var inRepository = false
+        var owner = ""
+        var name = ""
+
+        func flush() {
+            if !owner.isEmpty && !name.isEmpty {
+                repositories.append(GitHubRepositoryOption(owner: owner, name: name, isPrivate: false, defaultBranch: "", url: ""))
+            }
+            owner = ""
+            name = ""
+        }
+
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed == "[[github.repositories]]" {
+                if inRepository {
+                    flush()
+                }
+                inRepository = true
+                continue
+            }
+            if trimmed.hasPrefix("[") {
+                if inRepository {
+                    flush()
+                    inRepository = false
+                }
+                continue
+            }
+            guard inRepository, let separator = trimmed.firstIndex(of: "=") else { continue }
+            let key = trimmed[..<separator].trimmingCharacters(in: .whitespaces)
+            let value = unquote(String(trimmed[trimmed.index(after: separator)...].trimmingCharacters(in: .whitespaces)))
+            if key == "owner" {
+                owner = value
+            } else if key == "name" {
+                name = value
+            }
+        }
+        if inRepository {
+            flush()
+        }
+        return repositories
+    }
+
     private func writeConfig(_ settings: PASSettings) throws {
         guard var text = try? String(contentsOf: configURL(), encoding: .utf8) else { return }
         text = replaceConfigValue(text, section: "general", key: "git_author", value: settings.gitAuthor)
@@ -369,6 +441,7 @@ final class PASRunner: ObservableObject {
         text = replaceConfigValue(text, section: "slack.channels", key: "git_status", value: settings.slackGitStatusChannelID)
         text = replaceConfigValue(text, section: "slack.channels", key: "alerts", value: settings.slackAlertsChannelID)
         text = replaceConfigValue(text, section: "github", key: "token", value: settings.githubToken)
+        text = replaceGitHubRepositories(text, repositoryIDs: settings.githubRepositoryIDs)
         text = replaceConfigValue(text, section: "openai", key: "api_key", value: settings.openAIKey)
         text = replaceConfigBoolValue(text, section: "feature_groups", key: "jira", value: settings.jiraDailyEnabled)
         text = replaceConfigBoolValue(text, section: "feature_groups", key: "git", value: settings.gitReportEnabled || settings.gitStatusEnabled)
@@ -394,6 +467,46 @@ final class PASRunner: ObservableObject {
 
     private func replaceConfigBoolValue(_ text: String, section: String, key: String, value: Bool) -> String {
         replaceConfigLine(text, section: section, key: key, renderedValue: value ? "true" : "false")
+    }
+
+    private func replaceGitHubRepositories(_ text: String, repositoryIDs: Set<String>) -> String {
+        let lines = text.components(separatedBy: .newlines)
+        var output: [String] = []
+        var index = 0
+        while index < lines.count {
+            let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
+            if trimmed == "[[github.repositories]]" {
+                index += 1
+                while index < lines.count {
+                    let next = lines[index].trimmingCharacters(in: .whitespaces)
+                    if next.hasPrefix("[") {
+                        break
+                    }
+                    index += 1
+                }
+                continue
+            }
+            output.append(lines[index])
+            index += 1
+        }
+
+        let rendered = repositoryIDs.sorted().compactMap { id -> String? in
+            let parts = id.split(separator: "/", maxSplits: 1)
+            guard parts.count == 2 else { return nil }
+            return """
+
+            [[github.repositories]]
+            owner = "\(escapeToml(String(parts[0])))"
+            name = "\(escapeToml(String(parts[1])))"
+            """
+        }
+        if !rendered.isEmpty {
+            if output.last?.isEmpty == false {
+                output.append("")
+            }
+            output.append(rendered.joined(separator: "\n"))
+        }
+        return output.joined(separator: "\n")
     }
 
     private func replaceConfigLine(_ text: String, section: String, key: String, renderedValue: String) -> String {
@@ -507,6 +620,7 @@ struct PASSettings {
     var gitAuthor: String
     var workEndTime: String
     var githubToken: String
+    var githubRepositoryIDs: Set<String>
     var openAIKey: String
     var jiraDailyEnabled: Bool
     var gitReportEnabled: Bool
@@ -583,5 +697,21 @@ struct SlackChannel: Identifiable, Hashable {
 
     var label: String {
         "#\(name)\(isPrivate ? " (private)" : "")"
+    }
+}
+
+struct GitHubRepositoryOption: Identifiable, Hashable {
+    let owner: String
+    let name: String
+    let isPrivate: Bool
+    let defaultBranch: String
+    let url: String
+
+    var id: String {
+        "\(owner)/\(name)"
+    }
+
+    var label: String {
+        "\(id)\(isPrivate ? " (private)" : "")"
     }
 }
