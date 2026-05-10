@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
+import traceback
 
 from pas_automation.app_state import read_state, write_state
 from pas_automation.config import AppConfig
@@ -31,10 +32,17 @@ def tick(config: AppConfig, *, task_name: str | None = None, dry_run: bool = Fal
         if dry_run:
             lines.append(f"{task}: [dry-run] 실행 예정")
             continue
-        _run_task(config, task)
-        _mark_sent(state, task, now)
-        write_state(state)
-        lines.append(f"{task}: 전송 완료")
+        try:
+            _run_task(config, task)
+        except Exception as exc:
+            _mark_failure(state, task, now, exc)
+            write_state(state)
+            lines.append(f"{task}: 실패 - {exc}")
+            raise
+        else:
+            _mark_success(state, task, now)
+            write_state(state)
+            lines.append(f"{task}: 전송 완료")
 
     return "\n".join(lines)
 
@@ -80,10 +88,20 @@ def _sent_today(state: dict, task: str, now: datetime) -> bool:
     return task_state.get("last_sent_date") == now.date().isoformat()
 
 
-def _mark_sent(state: dict, task: str, now: datetime) -> None:
+def _mark_success(state: dict, task: str, now: datetime) -> None:
     state.setdefault("last_runs", {})[task] = {
+        "status": "success",
         "last_sent_date": now.date().isoformat(),
         "last_sent_at": now.isoformat(),
+    }
+
+
+def _mark_failure(state: dict, task: str, now: datetime, exc: Exception) -> None:
+    state.setdefault("last_runs", {})[task] = {
+        "status": "failed",
+        "last_failed_at": now.isoformat(),
+        "error": str(exc),
+        "traceback": traceback.format_exc(limit=5),
     }
 
 

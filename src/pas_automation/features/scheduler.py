@@ -41,13 +41,15 @@ def uninstall_schedules() -> str:
 
 
 def schedule_status(config: AppConfig) -> str:
-    lines = ["PAS 스케줄 설정 상태"]
+    system = platform.system()
+    lines = [f"PAS 스케줄 설정 상태 - {system}"]
     for task, label in TASK_LABELS.items():
         schedule = config.schedules[task]
         feature = "켜짐" if config.features.enabled(task) else "꺼짐"
         enabled = "켜짐" if schedule.enabled else "꺼짐"
         catch_up = "켜짐" if schedule.catch_up_if_missed else "꺼짐"
-        lines.append(f"{label}: 기능 {feature}, 스케줄 {enabled}, 시간 {schedule.time}, 놓친 실행 보정 {catch_up}")
+        installed = "등록됨" if _task_installed(system, task) else "미등록"
+        lines.append(f"{label}: 기능 {feature}, 스케줄 {enabled}, 시간 {schedule.time}, 놓친 실행 보정 {catch_up}, OS {installed}")
     return "\n".join(lines)
 
 
@@ -75,6 +77,7 @@ def _install_launchd(task: str, schedule: ScheduleConfig) -> None:
     label = _launchd_label(task)
     plist = _launch_agents_dir() / f"{label}.plist"
     hour, minute = _hour_minute(schedule.time)
+    program_arguments = "\n".join(f"    <string>{_xml_escape(arg)}</string>" for arg in _pas_tick_command(task))
     plist.write_text(
         f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -84,15 +87,7 @@ def _install_launchd(task: str, schedule: ScheduleConfig) -> None:
   <string>{label}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>{_python_executable()}</string>
-    <string>-m</string>
-    <string>pas_automation.cli</string>
-    <string>--config</string>
-    <string>{default_config_path()}</string>
-    <string>automation</string>
-    <string>tick</string>
-    <string>--task</string>
-    <string>{task}</string>
+{program_arguments}
   </array>
   <key>StartCalendarInterval</key>
   <dict>
@@ -124,10 +119,7 @@ def _uninstall_launchd(task: str) -> None:
 
 
 def _install_schtasks(task: str, schedule: ScheduleConfig) -> None:
-    command = (
-        f'"{_python_executable()}" -m pas_automation.cli '
-        f'--config "{default_config_path()}" automation tick --task {task}'
-    )
+    command = subprocess.list2cmdline(_pas_tick_command(task))
     subprocess.run(
         [
             "schtasks",
@@ -150,6 +142,20 @@ def _uninstall_schtasks(task: str) -> None:
     subprocess.run(["schtasks", "/Delete", "/TN", _windows_task_name(task), "/F"], check=False)
 
 
+def _task_installed(system: str, task: str) -> bool:
+    if system == "Darwin":
+        return (_launch_agents_dir() / f"{_launchd_label(task)}.plist").exists()
+    if system == "Windows":
+        result = subprocess.run(
+            ["schtasks", "/Query", "/TN", _windows_task_name(task)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return result.returncode == 0
+    return False
+
+
 def _launch_agents_dir() -> Path:
     path = Path.home() / "Library" / "LaunchAgents"
     path.mkdir(parents=True, exist_ok=True)
@@ -169,5 +175,35 @@ def _hour_minute(value: str) -> tuple[int, int]:
     return int(hour), int(minute)
 
 
-def _python_executable() -> str:
-    return sys.executable
+def _pas_tick_command(task: str) -> list[str]:
+    if getattr(sys, "frozen", False):
+        return [
+            sys.executable,
+            "--config",
+            str(default_config_path()),
+            "automation",
+            "tick",
+            "--task",
+            task,
+        ]
+    return [
+        sys.executable,
+        "-m",
+        "pas_automation.cli",
+        "--config",
+        str(default_config_path()),
+        "automation",
+        "tick",
+        "--task",
+        task,
+    ]
+
+
+def _xml_escape(value: str) -> str:
+    return (
+        value.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&apos;")
+    )
