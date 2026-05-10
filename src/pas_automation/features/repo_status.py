@@ -18,12 +18,14 @@ class RepoStatus:
 
 
 def summarize_repositories(config: AppConfig, *, send_slack: bool, dry_run: bool) -> str:
+    if not config.features.git_status:
+        return "Git 상태 점검 기능이 꺼져 있습니다."
     statuses = collect_repo_status(config)
     message = format_repo_status(statuses)
     if dry_run:
         return "[dry-run]\n" + message
     if send_slack:
-        SlackWebhook(config.slack).send(message, blocks=repo_status_blocks(statuses))
+        SlackWebhook(config.slack, destination="git_status").send(message, blocks=repo_status_blocks(statuses))
     return message
 
 

@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from pas_automation.config import AppConfig
 from pas_automation.features.assignees import resolve_assignee
+from pas_automation.integrations.github import GitHubBranchMatch, GitHubClient
 from pas_automation.integrations.jira import JiraClient
 from pas_automation.integrations.slack import (
     SlackWebhook,
@@ -24,6 +25,8 @@ def format_today_items(
     dry_run: bool = False,
     send_slack: bool = False,
 ) -> str:
+    if not config.features.jira_daily:
+        return "Jira 일일 브리핑 기능이 꺼져 있습니다."
     if dry_run:
         return "\n".join(
             [
@@ -39,19 +42,21 @@ def format_today_items(
         )
 
     client = JiraClient(config.jira)
-    issues = client.search(config.jira.todo_jql, max_results=max_results)
+    raw_issues = client.search(config.jira.todo_jql, max_results=max_results)
+    issues = _without_nested_subtasks(raw_issues)
     yesterday_keys = _issue_keys(client.search(config.jira.yesterday_assigned_jql, max_results=100))
     stale_keys = _issue_keys(client.search(config.jira.stale_jql, max_results=100))
     high_keys = _issue_keys(client.search(config.jira.high_priority_jql, max_results=100))
+    branch_matches = _github_branch_matches(config, issues)
 
     today = datetime.now(ZoneInfo(config.general.timezone)).date().isoformat()
-    lines = _build_text_report(config, today, issues, yesterday_keys, stale_keys, high_keys)
+    lines = _build_text_report(config, today, issues, yesterday_keys, stale_keys, high_keys, branch_matches)
 
     message = "\n".join(lines)
     if send_slack:
-        SlackWebhook(config.slack).send(
+        SlackWebhook(config.slack, destination="jira_daily").send(
             message,
-            blocks=_build_slack_blocks(config, today, issues, yesterday_keys, stale_keys, high_keys),
+            blocks=_build_slack_blocks(config, today, issues, yesterday_keys, stale_keys, high_keys, branch_matches),
         )
     return message
 
@@ -71,12 +76,15 @@ def _build_text_report(
     yesterday_keys: set[str],
     stale_keys: set[str],
     high_keys: set[str],
+    branch_matches: dict[str, list[GitHubBranchMatch]],
 ) -> list[str]:
+    subtask_count = sum(len(_subtasks(issue)) for issue in issues)
     lines = [
         f"오늘의 Jira 일감 - {today}",
         (
             "오늘의 Jira 일감: "
             f"미처리 {len(issues)}개, "
+            f"하위 일감 {subtask_count}개, "
             f"어제 할당 {len(yesterday_keys)}개, "
             f"5일 이상 {len(stale_keys)}개, "
             f"높은 우선순위 {len(high_keys)}개"
@@ -89,7 +97,7 @@ def _build_text_report(
         lines.append("확인할 미처리 일감이 없습니다.")
     else:
         for issue in issues:
-            lines.extend(_format_issue(config, issue, yesterday_keys, stale_keys, high_keys))
+            lines.extend(_format_issue(config, issue, yesterday_keys, stale_keys, high_keys, branch_matches))
     return lines
 
 
@@ -100,12 +108,15 @@ def _build_slack_blocks(
     yesterday_keys: set[str],
     stale_keys: set[str],
     high_keys: set[str],
+    branch_matches: dict[str, list[GitHubBranchMatch]],
 ) -> list[dict[str, Any]]:
+    subtask_count = sum(len(_subtasks(issue)) for issue in issues)
     blocks = [
         header_block(f"오늘의 Jira 일감 - {today}"),
         fields_block(
             [
                 f"*미처리*\n{len(issues)}개",
+                f"*하위 일감*\n{subtask_count}개",
                 f"*어제 할당*\n{len(yesterday_keys)}개",
                 f"*5일 이상 미갱신*\n{len(stale_keys)}개",
                 f"*높은 우선순위*\n{len(high_keys)}개",
@@ -119,7 +130,18 @@ def _build_slack_blocks(
         return blocks
 
     for issue in issues[:10]:
-        blocks.append(section_block(_format_issue_markdown(config, issue, yesterday_keys, stale_keys, high_keys)))
+        blocks.append(section_block(_format_issue_markdown(config, issue, yesterday_keys, stale_keys, high_keys, branch_matches)))
+        blocks.append(section_block(_format_issue_meta_markdown(issue)))
+        summary_text = _format_issue_summary_markdown(issue)
+        if summary_text:
+            blocks.append(section_block(summary_text))
+        subtask_text = _format_subtasks_markdown(config, issue)
+        if subtask_text:
+            blocks.append(context_block(subtask_text))
+        branch_text = _format_branches_markdown(issue, branch_matches)
+        if branch_text:
+            blocks.append(context_block(branch_text))
+        blocks.append(divider_block())
 
     if len(issues) > 10:
         blocks.append(context_block(f"Slack 표시 한도 때문에 상위 10개만 표시했습니다. 전체 조회 결과: {len(issues)}개"))
@@ -133,6 +155,7 @@ def _format_issue(
     yesterday_keys: set[str],
     stale_keys: set[str],
     high_keys: set[str],
+    branch_matches: dict[str, list[GitHubBranchMatch]],
 ) -> list[str]:
     fields = issue["fields"]
     priority = fields.get("priority", {}) or {}
@@ -141,13 +164,26 @@ def _format_issue(
     badges = _badges(issue["key"], yesterday_keys, stale_keys, high_keys)
     badge_text = "".join(f" [{badge}]" for badge in badges)
     description = _truncate(_description_to_text(fields.get("description")), 220)
-    return [
+    lines = [
         "",
         f"{issue['key']}{badge_text} {fields.get('summary', '')}",
         f"상태: {status.get('name', 'Unknown')} | 우선순위: {priority.get('name', '-')} | 마감: {due}",
         f"링크: {_issue_url(config, issue['key'])}",
         f"내용: {description}",
     ]
+    subtasks = _subtasks(issue)
+    if subtasks:
+        lines.append(f"하위 일감: {len(subtasks)}개")
+        for subtask in subtasks[:5]:
+            lines.append(f"  - {_format_subtask_text(config, subtask)}")
+        if len(subtasks) > 5:
+            lines.append(f"  - 외 {len(subtasks) - 5}개")
+    branches = branch_matches.get(issue["key"], [])
+    if branches:
+        lines.append(f"관련 GitHub 브랜치: {len(branches)}개")
+        for branch in branches[:5]:
+            lines.append(f"  - {branch.repository}: {branch.branch} | {branch.url}")
+    return lines
 
 
 def _format_issue_markdown(
@@ -156,17 +192,100 @@ def _format_issue_markdown(
     yesterday_keys: set[str],
     stale_keys: set[str],
     high_keys: set[str],
+    branch_matches: dict[str, list[GitHubBranchMatch]],
 ) -> str:
+    fields = issue["fields"]
+    badges = " ".join(f"`{badge}`" for badge in _badges(issue["key"], yesterday_keys, stale_keys, high_keys))
+    subtask_badge = f"`하위 {len(_subtasks(issue))}`" if _subtasks(issue) else ""
+    branch_badge = f"`브랜치 {len(branch_matches.get(issue['key'], []))}`" if branch_matches.get(issue["key"]) else ""
+    title = f"<{_issue_url(config, issue['key'])}|{issue['key']}> {fields.get('summary', '')}"
+    suffix_parts = [item for item in [badges, subtask_badge, branch_badge] if item]
+    suffix = f" {' '.join(suffix_parts)}" if suffix_parts else ""
+    return f"*{title}*{suffix}"
+
+
+def _format_issue_meta_markdown(issue: dict[str, Any]) -> str:
     fields = issue["fields"]
     priority = fields.get("priority", {}) or {}
     status = fields.get("status", {}) or {}
     due = fields.get("duedate") or "-"
-    badges = " ".join(f"`{badge}`" for badge in _badges(issue["key"], yesterday_keys, stale_keys, high_keys))
-    description = _truncate(_description_to_text(fields.get("description")), 180)
-    title = f"<{_issue_url(config, issue['key'])}|{issue['key']}> {fields.get('summary', '')}"
-    meta = f"상태: {status.get('name', 'Unknown')} | 우선순위: {priority.get('name', '-')} | 마감: {due}"
-    suffix = f"\n{badges}" if badges else ""
-    return f"*{title}*\n{meta}{suffix}\n>{description}"
+    return (
+        f"*상태* `{status.get('name', 'Unknown')}`   "
+        f"*우선순위* `{priority.get('name', '-')}`   "
+        f"*마감일자* `{due}`"
+    )
+
+
+def _format_issue_summary_markdown(issue: dict[str, Any]) -> str:
+    description = _truncate(_description_to_text(issue["fields"].get("description")), 360)
+    if not description or description == "-":
+        return ""
+    return f">*내용*\n>{description}"
+
+
+def _format_subtasks_markdown(config: AppConfig, issue: dict[str, Any]) -> str:
+    subtasks = _subtasks(issue)
+    if not subtasks:
+        return ""
+    lines = [f"하위 일감 {len(subtasks)}개"]
+    for subtask in subtasks[:5]:
+        lines.append(f"• {_format_subtask_markdown(config, subtask)}")
+    if len(subtasks) > 5:
+        lines.append(f"• 외 {len(subtasks) - 5}개")
+    return "\n".join(lines)
+
+
+def _format_branches_markdown(issue: dict[str, Any], branch_matches: dict[str, list[GitHubBranchMatch]]) -> str:
+    branches = branch_matches.get(issue["key"], [])
+    if not branches:
+        return ""
+    lines = [f"관련 GitHub 브랜치 {len(branches)}개"]
+    for branch in branches[:5]:
+        lines.append(f"• {branch.repository}: <{branch.url}|{branch.branch}>")
+    if len(branches) > 5:
+        lines.append(f"• 외 {len(branches) - 5}개")
+    return "\n".join(lines)
+
+
+def _github_branch_matches(config: AppConfig, issues: list[dict[str, Any]]) -> dict[str, list[GitHubBranchMatch]]:
+    if not config.github.repositories:
+        return {}
+    client = GitHubClient(config.github)
+    matches: dict[str, list[GitHubBranchMatch]] = {}
+    for issue in issues:
+        issue_key = issue["key"]
+        try:
+            found = client.find_branches(issue_key)
+        except RuntimeError:
+            found = []
+        if found:
+            matches[issue_key] = found
+    return matches
+
+
+def _format_subtask_markdown(config: AppConfig, subtask: dict[str, Any]) -> str:
+    fields = subtask.get("fields", {}) or {}
+    status = fields.get("status", {}) or {}
+    summary = fields.get("summary", "")
+    key = subtask.get("key", "")
+    return f"<{_issue_url(config, key)}|{key}> {summary} - {status.get('name', 'Unknown')}"
+
+
+def _format_subtask_text(config: AppConfig, subtask: dict[str, Any]) -> str:
+    fields = subtask.get("fields", {}) or {}
+    status = fields.get("status", {}) or {}
+    summary = fields.get("summary", "")
+    key = subtask.get("key", "")
+    return f"{key} {summary} | 상태: {status.get('name', 'Unknown')} | 링크: {_issue_url(config, key)}"
+
+
+def _subtasks(issue: dict[str, Any]) -> list[dict[str, Any]]:
+    return list((issue.get("fields", {}) or {}).get("subtasks") or [])
+
+
+def _without_nested_subtasks(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    nested_keys = {subtask.get("key") for issue in issues for subtask in _subtasks(issue)}
+    return [issue for issue in issues if issue.get("key") not in nested_keys]
 
 
 def _badges(issue_key: str, yesterday_keys: set[str], stale_keys: set[str], high_keys: set[str]) -> list[str]:

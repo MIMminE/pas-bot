@@ -48,6 +48,8 @@ def report(
     send_slack: bool,
     dry_run: bool,
 ) -> str:
+    if not config.features.git_report:
+        return "Git 일일 보고 기능이 꺼져 있습니다."
     snapshot_path = config.general.data_dir / f"snapshot-{snapshot_name}.json"
     if not snapshot_path.exists():
         raise RuntimeError(f"Snapshot not found: {snapshot_path}")
@@ -71,7 +73,7 @@ def report(
         return "[dry-run]\n" + final_report
 
     if send_slack:
-        SlackWebhook(config.slack).send(final_report, blocks=_report_blocks(final_report, len(sections)))
+        SlackWebhook(config.slack, destination="git_report").send(final_report, blocks=_report_blocks(final_report, len(sections)))
 
     return final_report
 

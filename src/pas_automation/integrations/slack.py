@@ -6,10 +6,13 @@ from pas_automation.http import json_request
 
 
 class SlackWebhook:
-    def __init__(self, config: SlackConfig) -> None:
-        webhook_url = config.webhook_url
+    def __init__(self, config: SlackConfig, *, destination: str = "default") -> None:
+        webhook_url = config.webhook_for(destination)
         if not webhook_url:
-            raise RuntimeError("Slack Webhook URL이 설정되어 있지 않습니다. config.toml의 [slack].webhook_url 값을 입력해 주세요.")
+            raise RuntimeError(
+                "Slack Webhook URL이 설정되어 있지 않습니다. "
+                f"config.toml의 [slack.webhooks].{destination} 또는 [slack].webhook_url 값을 입력해 주세요."
+            )
         self.webhook_url = webhook_url
 
     def send(self, text: str, *, blocks: list[dict[str, Any]] | None = None) -> None:

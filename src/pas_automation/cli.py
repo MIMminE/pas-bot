@@ -5,10 +5,12 @@ import argparse
 from pas_automation.app_state import default_config_path, default_env_path, init_app_data
 from pas_automation.config import load_config
 from pas_automation.features.assignees import list_assignees
+from pas_automation.features.automation import tick
 from pas_automation.features.doctor import run_doctor
 from pas_automation.features.jira_daily import assign_issue, format_today_items
 from pas_automation.features.repo_report import report, snapshot
 from pas_automation.features.repo_status import summarize_repositories
+from pas_automation.features.scheduler import install_schedules, schedule_status, uninstall_schedules
 from pas_automation.features.settings_import import import_settings
 from pas_automation.features.slack_test import send_test_message
 from pas_automation.runtime_env import load_env_file
@@ -38,6 +40,11 @@ def build_parser() -> argparse.ArgumentParser:
     slack_sub = slack.add_subparsers(dest="command", required=True)
     slack_test = slack_sub.add_parser("test", help="Send a Slack webhook test message")
     slack_test.add_argument("--dry-run", action="store_true")
+    slack_test.add_argument(
+        "--destination",
+        default="test",
+        help="Slack destination key: test, jira_daily, git_report, git_status, alerts, default",
+    )
 
     repo = subparsers.add_parser("repo", help="Repository automations")
     repo_sub = repo.add_subparsers(dest="command", required=True)
@@ -53,9 +60,21 @@ def build_parser() -> argparse.ArgumentParser:
     repo_status.add_argument("--send-slack", action="store_true")
     repo_status.add_argument("--dry-run", action="store_true")
 
+    automation = subparsers.add_parser("automation", help="Scheduled automation runner")
+    automation_sub = automation.add_subparsers(dest="command", required=True)
+    automation_tick = automation_sub.add_parser("tick", help="Run due scheduled automations once")
+    automation_tick.add_argument("--task", choices=["jira_daily", "git_report", "git_status"])
+    automation_tick.add_argument("--dry-run", action="store_true")
+
     status = subparsers.add_parser("status", help="Local app status and diagnostics")
     status_sub = status.add_subparsers(dest="command", required=True)
     status_sub.add_parser("doctor", help="Check configuration and local repository roots")
+
+    schedule = subparsers.add_parser("schedule", help="Install or remove OS scheduled tasks")
+    schedule_sub = schedule.add_subparsers(dest="command", required=True)
+    schedule_sub.add_parser("install", help="Install OS scheduler entries from config")
+    schedule_sub.add_parser("uninstall", help="Remove PAS OS scheduler entries")
+    schedule_sub.add_parser("status", help="Show schedule configuration")
 
     settings = subparsers.add_parser("settings", help="Settings import and lookup")
     settings_sub = settings.add_subparsers(dest="command", required=True)
@@ -92,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.area == "slack" and args.command == "test":
-        print(send_test_message(config, dry_run=args.dry_run))
+        print(send_test_message(config, dry_run=args.dry_run, destination=args.destination))
         return 0
 
     if args.area == "repo" and args.command == "snapshot":
@@ -115,8 +134,24 @@ def main(argv: list[str] | None = None) -> int:
         print(summarize_repositories(config, send_slack=args.send_slack, dry_run=args.dry_run))
         return 0
 
+    if args.area == "automation" and args.command == "tick":
+        print(tick(config, task_name=args.task, dry_run=args.dry_run))
+        return 0
+
     if args.area == "status" and args.command == "doctor":
         print(run_doctor(config))
+        return 0
+
+    if args.area == "schedule" and args.command == "install":
+        print(install_schedules(config))
+        return 0
+
+    if args.area == "schedule" and args.command == "uninstall":
+        print(uninstall_schedules())
+        return 0
+
+    if args.area == "schedule" and args.command == "status":
+        print(schedule_status(config))
         return 0
 
     if args.area == "settings" and args.command == "import":

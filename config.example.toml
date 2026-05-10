@@ -17,9 +17,44 @@ high_priority_jql = "assignee = currentUser() AND statusCategory != Done AND pri
 [slack]
 webhook_url = ""
 
+[slack.webhooks]
+default = ""
+test = ""
+jira_daily = ""
+git_report = ""
+git_status = ""
+alerts = ""
+
 [openai]
 api_key = ""
 model = "gpt-5-mini"
+
+[github]
+token = ""
+
+[[github.repositories]]
+owner = "your-org"
+name = "your-repo"
+
+[features]
+jira_daily = true
+git_report = true
+git_status = true
+
+[schedules.jira_daily]
+enabled = false
+time = "09:00"
+catch_up_if_missed = true
+
+[schedules.git_report]
+enabled = false
+time = "18:30"
+catch_up_if_missed = true
+
+[schedules.git_status]
+enabled = false
+time = "09:10"
+catch_up_if_missed = true
 
 [[repositories.roots]]
 path = "/Users/yourname/STL"

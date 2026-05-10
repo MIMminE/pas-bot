@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from urllib.parse import quote
 
 from pas_automation.config import JiraConfig
@@ -22,7 +23,7 @@ class JiraClient:
             payload={
                 "jql": jql,
                 "maxResults": max_results,
-                "fields": ["summary", "status", "priority", "assignee", "duedate", "description"],
+                "fields": ["summary", "status", "priority", "assignee", "duedate", "description", "subtasks"],
             },
         )
         return payload.get("issues", [])

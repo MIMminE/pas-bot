@@ -53,6 +53,26 @@ def default_assignees_path() -> Path:
     return app_data_dir() / "assignees.json"
 
 
+def default_state_path() -> Path:
+    return app_data_dir() / "state.json"
+
+
+def read_state() -> dict:
+    path = default_state_path()
+    if not path.exists():
+        _create_state_if_missing(path)
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"version": STATE_VERSION, "last_runs": {}}
+
+
+def write_state(state: dict) -> None:
+    path = default_state_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def _copy_if_missing(source: Path, destination: Path) -> None:
     if destination.exists() or not source.exists():
         return

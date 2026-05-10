@@ -29,12 +29,45 @@ class JiraConfig:
 @dataclass(frozen=True)
 class SlackConfig:
     webhook_url: str
+    webhooks: dict[str, str]
+
+    def webhook_for(self, destination: str = "default") -> str:
+        return self.webhooks.get(destination) or self.webhook_url
 
 
 @dataclass(frozen=True)
 class OpenAIConfig:
     api_key: str
     model: str
+
+
+@dataclass(frozen=True)
+class GitHubRepository:
+    owner: str
+    name: str
+
+
+@dataclass(frozen=True)
+class GitHubConfig:
+    token: str
+    repositories: list[GitHubRepository]
+
+
+@dataclass(frozen=True)
+class FeatureConfig:
+    jira_daily: bool
+    git_report: bool
+    git_status: bool
+
+    def enabled(self, task_name: str) -> bool:
+        return bool(getattr(self, task_name, False))
+
+
+@dataclass(frozen=True)
+class ScheduleConfig:
+    enabled: bool
+    time: str
+    catch_up_if_missed: bool
 
 
 @dataclass(frozen=True)
@@ -50,6 +83,9 @@ class AppConfig:
     jira: JiraConfig
     slack: SlackConfig
     openai: OpenAIConfig
+    github: GitHubConfig
+    features: FeatureConfig
+    schedules: dict[str, ScheduleConfig]
     assignees_path: Path
     repo_roots: list[RepoRoot]
 
@@ -62,7 +98,11 @@ def load_config(path: str | Path) -> AppConfig:
     general_raw = raw.get("general", {})
     jira_raw = raw.get("jira", {})
     slack_raw = raw.get("slack", {})
+    slack_webhooks_raw = slack_raw.get("webhooks", {})
     openai_raw = raw.get("openai", {})
+    github_raw = raw.get("github", {})
+    features_raw = raw.get("features", {})
+    schedules_raw = raw.get("schedules", {})
 
     data_dir = Path(general_raw.get("data_dir", ".pas"))
     if not data_dir.is_absolute():
@@ -108,11 +148,35 @@ def load_config(path: str | Path) -> AppConfig:
         ),
         slack=SlackConfig(
             webhook_url=_config_or_env(slack_raw, "webhook_url", slack_raw.get("webhook_url_env", "SLACK_WEBHOOK_URL")),
+            webhooks={
+                str(key): _config_or_env(slack_webhooks_raw, str(key), "")
+                for key in ("default", "test", "jira_daily", "git_report", "git_status", "alerts")
+            },
         ),
         openai=OpenAIConfig(
             api_key=_config_or_env(openai_raw, "api_key", openai_raw.get("api_key_env", "OPENAI_API_KEY")),
             model=openai_raw.get("model", "gpt-5-mini"),
         ),
+        github=GitHubConfig(
+            token=_config_or_env(github_raw, "token", github_raw.get("token_env", "GITHUB_TOKEN")),
+            repositories=[
+                GitHubRepository(owner=str(item["owner"]), name=str(item["name"]))
+                for item in github_raw.get("repositories", [])
+            ],
+        ),
+        features=FeatureConfig(
+            jira_daily=bool(features_raw.get("jira_daily", True)),
+            git_report=bool(features_raw.get("git_report", True)),
+            git_status=bool(features_raw.get("git_status", True)),
+        ),
+        schedules={
+            task_name: _load_schedule(schedules_raw, task_name, default_time)
+            for task_name, default_time in {
+                "jira_daily": "09:00",
+                "git_report": "18:30",
+                "git_status": "09:10",
+            }.items()
+        },
         assignees_path=config_path.parent / "assignees.json",
         repo_roots=repo_roots,
     )
@@ -123,3 +187,12 @@ def _config_or_env(section: dict, key: str, env_name: str, default: str = "") ->
     if value:
         return str(value)
     return os.environ.get(env_name, default)
+
+
+def _load_schedule(raw: dict, task_name: str, default_time: str) -> ScheduleConfig:
+    section = raw.get(task_name, {})
+    return ScheduleConfig(
+        enabled=bool(section.get("enabled", False)),
+        time=str(section.get("time", default_time)),
+        catch_up_if_missed=bool(section.get("catch_up_if_missed", True)),
+    )
