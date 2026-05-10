@@ -134,6 +134,11 @@ struct IssueRepositoryLinkView: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(selectedPath.isEmpty || runner.isRunning)
+
+                Button("브랜치 시작 후 IDE 열기") {
+                    Task { await saveLinkStartBranchAndOpenIDE() }
+                }
+                .disabled(selectedPath.isEmpty || runner.isRunning)
             }
         }
         .padding(20)
@@ -166,6 +171,15 @@ struct IssueRepositoryLinkView: View {
         guard result.succeeded else { return }
         runner.closeIssueRepositoryLinkWindow()
         await runner.createBranch(issue: issue, repo: selectedPath, summary: summary)
+    }
+
+    private func saveLinkStartBranchAndOpenIDE() async {
+        let result = await runner.linkIssueRepository(issue: issue, repo: selectedPath, summary: summary)
+        resultMessage = result.displayText
+        guard result.succeeded else { return }
+        runner.closeIssueRepositoryLinkWindow()
+        await runner.createBranch(issue: issue, repo: selectedPath, summary: summary)
+        runner.openRepositoryInIDE(path: selectedPath, appName: runner.loadSettings().defaultIDEAppName)
     }
 }
 

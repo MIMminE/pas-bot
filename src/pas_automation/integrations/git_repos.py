@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 import subprocess
 
 
@@ -128,6 +129,22 @@ def push(repo: Path) -> str:
 
 def current_branch(repo: Path) -> str:
     return git(repo, "branch", "--show-current") or "detached"
+
+
+def owner_repo(repo: Path) -> str:
+    try:
+        url = git(repo, "remote", "get-url", "origin")
+    except RuntimeError:
+        return ""
+    patterns = [
+        r"github\.com[:/](?P<owner>[^/]+)/(?P<repo>[^/.]+)(?:\.git)?$",
+        r"github\.com/(?P<owner>[^/]+)/(?P<repo>[^/.]+)(?:\.git)?$",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return f"{match.group('owner')}/{match.group('repo')}"
+    return ""
 
 
 def recent_commits(repo: Path, *, author: str = "", max_count: int = 10) -> list[str]:

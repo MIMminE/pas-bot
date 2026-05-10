@@ -7,6 +7,7 @@ struct SetupView: View {
     @State private var slackChannels: [SlackChannel] = []
     @State private var localRepositories: [LocalRepositoryOption] = []
     @State private var remoteRepositories: [GitHubRemoteRepositoryOption] = []
+    @State private var ideApps: [IDEAppOption] = []
     @State private var selectedRemoteRepositoryIDs: Set<String> = []
     @State private var remoteOwner = ""
     @State private var remoteCloneRoot = ""
@@ -194,6 +195,7 @@ struct SetupView: View {
                 SettingsTextField(title: "Git 작성자", placeholder: "git user.name 또는 email", text: $settings.gitAuthor)
                 SettingsTextField(title: "퇴근 기준 시간", placeholder: "18:00", text: $settings.workEndTime)
                 SettingsSecureField(title: "OpenAI API Key", placeholder: "Git 보고서 AI 요약 사용 시 입력", text: $settings.openAIKey)
+                idePicker
 
                 Text("GitHub CLI 로그인 상태로 접근 가능한 repository 후보를 조회하고, 선택한 repository를 내려받아 관리 대상으로 저장합니다.")
                     .font(.caption)
@@ -375,6 +377,50 @@ struct SetupView: View {
         .padding(10)
         .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var idePicker: some View {
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+            GridRow {
+                Text("기본 IDE")
+                    .frame(width: 128, alignment: .leading)
+
+                HStack(spacing: 8) {
+                    Picker("기본 IDE", selection: $settings.defaultIDEAppName) {
+                        Text("macOS 기본 앱").tag("")
+                        if !settings.defaultIDEAppName.isEmpty && !ideApps.contains(where: { $0.name == settings.defaultIDEAppName }) {
+                            Text(settings.defaultIDEAppName).tag(settings.defaultIDEAppName)
+                        }
+                        ForEach(ideApps) { app in
+                            Text(app.name).tag(app.name)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 260, alignment: .leading)
+
+                    Button("IDE 후보 새로고침") {
+                        ideApps = runner.detectedIDEApps()
+                    }
+
+                    if ideApps.isEmpty {
+                        Text("감지된 IDE가 없으면 macOS 기본 앱으로 열립니다.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("\(ideApps.count)개 감지")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+                }
+            }
+        }
+        .task {
+            if ideApps.isEmpty {
+                ideApps = runner.detectedIDEApps()
+            }
+        }
     }
 
     private var testSection: some View {

@@ -294,6 +294,58 @@ struct WorkView: View {
                     Task { await showTodayActivity() }
                 }
                 .disabled(runner.isRunning)
+
+                DashboardButton(title: "PR 상태", systemImage: "arrow.triangle.pull") {
+                    Task {
+                        await runDashboardCommand(
+                            ["dev", "pr-status"],
+                            title: "PR 상태",
+                            running: "열린 PR 상태를 확인하는 중...",
+                            success: "PR 상태 확인 완료",
+                            failure: "PR 상태 확인 실패"
+                        )
+                    }
+                }
+                .disabled(runner.isRunning)
+
+                DashboardButton(title: "리뷰 요청", systemImage: "person.2.badge.gearshape") {
+                    Task {
+                        await runDashboardCommand(
+                            ["dev", "review-alerts"],
+                            title: "리뷰 요청",
+                            running: "리뷰 요청 PR을 확인하는 중...",
+                            success: "리뷰 요청 확인 완료",
+                            failure: "리뷰 요청 확인 실패"
+                        )
+                    }
+                }
+                .disabled(runner.isRunning)
+
+                DashboardButton(title: "CI 실패", systemImage: "xmark.seal") {
+                    Task {
+                        await runDashboardCommand(
+                            ["dev", "ci-alerts"],
+                            title: "CI 실패",
+                            running: "최근 CI 실패를 확인하는 중...",
+                            success: "CI 실패 확인 완료",
+                            failure: "CI 실패 확인 실패"
+                        )
+                    }
+                }
+                .disabled(runner.isRunning)
+
+                DashboardButton(title: "배포 대기", systemImage: "shippingbox") {
+                    Task {
+                        await runDashboardCommand(
+                            ["jira", "deploy-waiting"],
+                            title: "배포 대기 Jira",
+                            running: "배포 대기 Jira 일감을 확인하는 중...",
+                            success: "배포 대기 Jira 확인 완료",
+                            failure: "배포 대기 Jira 확인 실패"
+                        )
+                    }
+                }
+                .disabled(runner.isRunning)
             }
         }
     }
@@ -347,6 +399,9 @@ struct WorkView: View {
                                 isRunning: runner.isRunning,
                                 onSelect: {
                                     selectedPath = repo.path
+                                },
+                                onOpenIDE: {
+                                    openIDE(repo)
                                 },
                                 onCommits: {
                                     Task { await showTodayCommits(repo) }
@@ -524,6 +579,12 @@ struct WorkView: View {
         selectedPath = repo.path
         lastMessage = await runner.loadTodayCommits(path: repo.path)
         showNotice(title: "\(repo.name) 오늘 커밋", message: lastMessage, succeeded: !runner.status.contains("실패"))
+    }
+
+    private func openIDE(_ repo: LocalRepositoryOption) {
+        selectedPath = repo.path
+        let appName = runner.loadSettings().defaultIDEAppName
+        runner.openRepositoryInIDE(path: repo.path, appName: appName)
     }
 
     private func showTodayActivity() async {

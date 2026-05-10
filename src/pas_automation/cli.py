@@ -11,6 +11,16 @@ from pas_automation.features.assignees import list_assignees
 from pas_automation.features.automation import tick
 from pas_automation.features.daily_activity import summarize_daily_activity
 from pas_automation.features.dev_assistant import audit_jira_keys, branch_name, calendar_summary, commit_message, create_branch, dashboard, evening_check, morning_briefing, pr_draft
+from pas_automation.features.dev_insights import (
+    ci_failure_alerts,
+    deployment_waiting_issues,
+    evening_checklist,
+    pr_status_dashboard,
+    recommend_issue_repositories,
+    review_request_alerts,
+    start_issue_work,
+    trace_issue_work,
+)
 from pas_automation.features.doctor import run_doctor
 from pas_automation.features.health import run_health
 from pas_automation.features.issue_repositories import (
@@ -61,6 +71,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     jira_repo_links = jira_sub.add_parser("repo-links", help="Jira 일감과 repository 연결 목록")
     jira_repo_links.add_argument("--format", choices=["text", "tsv"], default="text", help="출력 형식")
+    jira_deploy = jira_sub.add_parser("deploy-waiting", help="배포 대기 상태의 내 Jira 일감 조회")
+    jira_deploy.add_argument("--send-slack", action="store_true", help="Slack alerts 채널로 전송")
 
     slack = subparsers.add_parser("slack", help="Slack 알림")
     slack_sub = slack.add_subparsers(dest="command", required=True)
@@ -155,6 +167,24 @@ def build_parser() -> argparse.ArgumentParser:
     dev_pr.add_argument("--repo", help="대상 repository 경로")
     dev_pr.add_argument("--issue-key", help="PR에 연결할 Jira 이슈 키")
     dev_sub.add_parser("audit-jira-keys", help="Jira 키가 없는 브랜치/커밋 점검")
+    dev_recommend = dev_sub.add_parser("recommend-repo", help="Jira 이슈에 어울리는 관리 repository 추천")
+    dev_recommend.add_argument("issue_key", help="Jira 이슈 키")
+    dev_recommend.add_argument("--summary", default="", help="Jira 요약. 비우면 Jira API에서 조회")
+    dev_trace = dev_sub.add_parser("trace-issue", help="Jira 키와 연결된 브랜치/커밋/PR 추적")
+    dev_trace.add_argument("issue_key", help="Jira 이슈 키")
+    dev_start = dev_sub.add_parser("start-issue", help="Jira 일감 시작: repository 연결 후 브랜치 생성")
+    dev_start.add_argument("issue_key", help="Jira 이슈 키")
+    dev_start.add_argument("--repo", help="작업할 관리 repository 경로. 비우면 추천 근거로 자동 선택")
+    dev_start.add_argument("--summary", default="", help="브랜치명에 사용할 작업 요약")
+    dev_start.add_argument("--prefix", default="feature", help="브랜치 prefix")
+    dev_start.add_argument("--base-branch", default="dev", help="작업 브랜치를 시작할 기준 브랜치")
+    dev_pr_status = dev_sub.add_parser("pr-status", help="관리 repository의 열린 PR 상태 대시보드")
+    dev_pr_status.add_argument("--send-slack", action="store_true", help="Slack alerts 채널로 전송")
+    dev_review = dev_sub.add_parser("review-alerts", help="나에게 요청된 PR 리뷰 조회")
+    dev_review.add_argument("--send-slack", action="store_true", help="Slack alerts 채널로 전송")
+    dev_ci = dev_sub.add_parser("ci-alerts", help="관리 repository의 최근 CI 실패 조회")
+    dev_ci.add_argument("--send-slack", action="store_true", help="Slack alerts 채널로 전송")
+    dev_sub.add_parser("evening-checklist", help="퇴근 전 미커밋/미푸시/최신화 필요 체크리스트")
     dev_sub.add_parser("dashboard", help="관리 repository 상태 대시보드")
     dev_sub.add_parser("calendar", help="캘린더 일정 요약")
 
@@ -237,6 +267,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.area == "jira" and args.command == "repo-links":
         print(format_issue_repository_links(output_format=args.format))
+        return 0
+
+    if args.area == "jira" and args.command == "deploy-waiting":
+        print(deployment_waiting_issues(config, send_slack=args.send_slack))
         return 0
 
     if args.area == "slack" and args.command == "test":
@@ -396,6 +430,43 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.area == "dev" and args.command == "audit-jira-keys":
         print(audit_jira_keys(config))
+        return 0
+
+    if args.area == "dev" and args.command == "recommend-repo":
+        print(recommend_issue_repositories(config, args.issue_key, summary=args.summary))
+        return 0
+
+    if args.area == "dev" and args.command == "trace-issue":
+        print(trace_issue_work(config, args.issue_key))
+        return 0
+
+    if args.area == "dev" and args.command == "start-issue":
+        print(
+            start_issue_work(
+                config,
+                args.issue_key,
+                repo_path=args.repo,
+                summary=args.summary,
+                prefix=args.prefix,
+                base_branch=args.base_branch,
+            )
+        )
+        return 0
+
+    if args.area == "dev" and args.command == "pr-status":
+        print(pr_status_dashboard(config, send_slack=args.send_slack))
+        return 0
+
+    if args.area == "dev" and args.command == "review-alerts":
+        print(review_request_alerts(config, send_slack=args.send_slack))
+        return 0
+
+    if args.area == "dev" and args.command == "ci-alerts":
+        print(ci_failure_alerts(config, send_slack=args.send_slack))
+        return 0
+
+    if args.area == "dev" and args.command == "evening-checklist":
+        print(evening_checklist(config))
         return 0
 
     if args.area == "dev" and args.command == "dashboard":

@@ -84,6 +84,48 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
         NSWorkspace.shared.open(url)
     }
 
+    func detectedIDEApps() -> [IDEAppOption] {
+        let candidates = [
+            "Cursor",
+            "Visual Studio Code",
+            "IntelliJ IDEA",
+            "IntelliJ IDEA CE",
+            "PyCharm",
+            "WebStorm",
+            "Android Studio",
+            "Xcode",
+            "Sublime Text",
+            "Zed",
+        ]
+        let options = candidates.compactMap { name -> IDEAppOption? in
+            guard let url = Self.findApplication(named: name) else { return nil }
+            return IDEAppOption(name: name, path: url.path)
+        }
+        return options.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    func openRepositoryInIDE(path: String, appName: String) {
+        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPath.isEmpty else {
+            status = "열 repository 경로가 없습니다"
+            return
+        }
+
+        let url = URL(fileURLWithPath: trimmedPath)
+        if appName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            NSWorkspace.shared.open(url)
+            status = "\(url.lastPathComponent) 열기 요청"
+            return
+        }
+
+        let result = Self.executeRaw(["open", "-a", appName, trimmedPath])
+        lastOutput = result.output
+        status = result.succeeded ? "\(url.lastPathComponent)을 \(appName)로 여는 중" : "\(appName) 실행 실패"
+        if !result.succeeded {
+            openOutputWindow(title: "IDE 실행 오류", output: result.output.isEmpty ? result.summary : result.output)
+        }
+    }
+
     func handleDeepLink(_ url: URL) {
         shouldOpenSetupOnLaunch = false
         isHandlingDeepLink = true
@@ -379,7 +421,8 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
               echo "GitHub CLI(gh)를 찾지 못했습니다."
               echo "먼저 https://cli.github.com/ 에서 gh를 설치해 주세요."
               echo ""
-              read -r "?Enter를 누르면 닫힙니다."
+              echo "Enter를 누르면 닫힙니다."
+              read -r
               exit 1
             fi
             echo "브라우저 또는 터미널 안내에 따라 GitHub 로그인을 완료해 주세요."
@@ -389,7 +432,8 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
             echo "현재 로그인 상태:"
             gh auth status
             echo ""
-            read -r "?완료 후 Enter를 누르면 닫힙니다."
+            echo "완료 후 Enter를 누르면 닫힙니다."
+            read -r
             """
             try script.write(to: scriptURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
@@ -637,6 +681,24 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
 
     private nonisolated static func queryValue(_ name: String, in items: [URLQueryItem]) -> String {
         items.first { $0.name == name }?.value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private nonisolated static func findApplication(named name: String) -> URL? {
+        let roots = [
+            URL(fileURLWithPath: "/Applications"),
+            URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Applications"),
+        ]
+        for root in roots {
+            let direct = root.appendingPathComponent("\(name).app")
+            if FileManager.default.fileExists(atPath: direct.path) {
+                return direct
+            }
+        }
+        let workspaceURL = URL(fileURLWithPath: "/Applications").appendingPathComponent("JetBrains Toolbox").appendingPathComponent("\(name).app")
+        if FileManager.default.fileExists(atPath: workspaceURL.path) {
+            return workspaceURL
+        }
+        return nil
     }
 
     private nonisolated static func executeDetached(_ arguments: [String]) async -> (succeeded: Bool, output: String, summary: String) {

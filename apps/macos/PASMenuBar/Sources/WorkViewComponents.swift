@@ -131,6 +131,7 @@ struct RepositoryDashboardRow: View {
     let isSelected: Bool
     let isRunning: Bool
     let onSelect: () -> Void
+    let onOpenIDE: () -> Void
     let onCommits: () -> Void
     let onFetch: () -> Void
     let onPull: () -> Void
@@ -183,6 +184,8 @@ struct RepositoryDashboardRow: View {
                 Spacer()
 
                 HStack(spacing: 6) {
+                    RepoIconButton(title: "IDE", systemImage: "macwindow", action: onOpenIDE)
+                        .disabled(isRunning)
                     RepoIconButton(title: "오늘 커밋", systemImage: "list.bullet.rectangle", action: onCommits)
                         .disabled(isRunning)
                     RepoIconButton(title: "원격 확인", systemImage: "arrow.triangle.2.circlepath", action: onFetch)

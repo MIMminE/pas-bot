@@ -11,6 +11,10 @@ work_end_time = "18:00"
 # 스냅샷과 실행 상태를 저장할 폴더입니다. ".pas"는 config.toml 위치를 의미합니다.
 data_dir = ".pas"
 
+[developer]
+# 작업 대시보드에서 repository를 열 기본 IDE 앱 이름입니다. 예: Cursor, Visual Studio Code, IntelliJ IDEA
+default_ide_app = ""
+
 [jira]
 # Atlassian Jira 사이트 주소입니다.
 base_url = "https://your-company.atlassian.net"

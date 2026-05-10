@@ -4,12 +4,11 @@ from dataclasses import dataclass
 from datetime import datetime
 import json
 from pathlib import Path
-import re
 import subprocess
 from zoneinfo import ZoneInfo
 
 from pas_automation.config import AppConfig
-from pas_automation.integrations.git_repos import configured_repositories, git
+from pas_automation.integrations.git_repos import configured_repositories, git, owner_repo
 
 
 @dataclass(frozen=True)
@@ -118,15 +117,15 @@ def _merges(repo: Path, *, today: str, author: str) -> list[str]:
 
 
 def _pull_requests(repo: Path, *, today: str) -> list[str]:
-    owner_repo = _owner_repo(repo)
-    if not owner_repo:
+    repo_name = owner_repo(repo)
+    if not repo_name:
         return []
     args = [
         "gh",
         "pr",
         "list",
         "--repo",
-        owner_repo,
+        repo_name,
         "--state",
         "all",
         "--search",
@@ -146,23 +145,6 @@ def _pull_requests(repo: Path, *, today: str) -> list[str]:
         state = "MERGED" if row.get("mergedAt") else str(row.get("state", ""))
         items.append(f"#{row.get('number')} [{state}] {row.get('title')} | {row.get('headRefName')} | {row.get('url')}")
     return items
-
-
-def _owner_repo(repo: Path) -> str:
-    try:
-        url = git(repo, "remote", "get-url", "origin")
-    except RuntimeError:
-        return ""
-    patterns = [
-        r"github\.com[:/](?P<owner>[^/]+)/(?P<repo>[^/.]+)(?:\.git)?$",
-        r"github\.com/(?P<owner>[^/]+)/(?P<repo>[^/.]+)(?:\.git)?$",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            return f"{match.group('owner')}/{match.group('repo')}"
-    return ""
-
 
 def _section(title: str, rows: list[str]) -> str:
     if not rows:

@@ -51,9 +51,14 @@ def evening_check(config: AppConfig, *, send_slack: bool, dry_run: bool = False)
     if not config.features.evening_check:
         return "퇴근 체크 기능이 꺼져 있습니다."
 
+    from pas_automation.features.dev_insights import evening_checklist
+
     statuses = collect_repo_status(config)
     sections = [
         "퇴근 체크",
+        "",
+        "[퇴근 전 체크리스트]",
+        evening_checklist(config),
         "",
         "[관리 repository 상태]",
         format_repo_status(statuses),

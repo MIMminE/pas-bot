@@ -43,6 +43,7 @@ struct PASSettings {
     var gitStatusScheduleEnabled: Bool
     var gitStatusScheduleTime: String
     var gitStatusCatchUp: Bool
+    var defaultIDEAppName: String
 
     var testChannelID: String {
         slackTestChannelID.isEmpty ? slackDefaultChannelID : slackTestChannelID
@@ -162,6 +163,19 @@ struct GitHubRemoteRepositoryOption: Identifiable, Hashable, Sendable {
 
     var cloneSource: String {
         sshURL.isEmpty ? nameWithOwner : sshURL
+    }
+}
+
+struct IDEAppOption: Identifiable, Hashable, Sendable {
+    let name: String
+    let path: String
+
+    var id: String {
+        name
+    }
+
+    var label: String {
+        path.isEmpty ? name : "\(name) - \(path)"
     }
 }
 
