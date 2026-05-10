@@ -30,18 +30,6 @@ struct WorkView: View {
         }
     }
 
-    private var needsUpdateCount: Int {
-        repositories.filter { $0.needsUpdate }.count
-    }
-
-    private var dirtyCount: Int {
-        repositories.filter { $0.dirtyCount > 0 }.count
-    }
-
-    private var pushCount: Int {
-        repositories.filter { ($0.ahead ?? 0) > 0 }.count
-    }
-
     private var preferredScheme: ColorScheme? {
         switch appearance {
         case "light":
@@ -71,7 +59,7 @@ struct WorkView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        metricStrip
+                        commandCenter
                         dashboardTabs
                         selectedDashboardContent
                     }
@@ -132,21 +120,10 @@ struct WorkView: View {
         .background(.regularMaterial)
     }
 
-    private var metricStrip: some View {
-        HStack(spacing: 12) {
-            MetricTile(title: "관리 저장소", value: "\(repositories.count)", systemImage: "folder.badge.gearshape", tint: .blue)
-            MetricTile(title: "정비 필요", value: "\(needsUpdateCount)", systemImage: "arrow.down.circle.fill", tint: needsUpdateCount > 0 ? .orange : .green)
-            MetricTile(title: "변경 있음", value: "\(dirtyCount)", systemImage: "exclamationmark.triangle.fill", tint: dirtyCount > 0 ? .orange : .green)
-            MetricTile(title: "올릴 커밋", value: "\(pushCount)", systemImage: "arrow.up.circle.fill", tint: pushCount > 0 ? .purple : .green)
-        }
-    }
-
     private var dashboardTabs: some View {
         Picker("작업 영역", selection: $selectedTab) {
             Label("저장소", systemImage: "folder.badge.gearshape").tag("repositories")
             Label("보고서", systemImage: "doc.text").tag("report")
-            Label("도구/AI", systemImage: "wand.and.stars").tag("tools")
-            Label("결과", systemImage: "terminal").tag("result")
         }
         .pickerStyle(.segmented)
     }
@@ -156,17 +133,82 @@ struct WorkView: View {
         switch selectedTab {
         case "report":
             reportSection
-        case "tools":
-            VStack(alignment: .leading, spacing: 16) {
-                toolActions
-                aiSection
-            }
-        case "result":
-            resultSection
         default:
             VStack(alignment: .leading, spacing: 16) {
                 repositoryActions
                 repositorySection
+            }
+        }
+    }
+
+    private var commandCenter: some View {
+        DashboardPanel(title: "업무 실행 보드", systemImage: "rectangle.grid.2x2") {
+            HStack(alignment: .top, spacing: 12) {
+                briefingActions
+                    .frame(maxWidth: .infinity)
+                toolActions
+                    .frame(maxWidth: .infinity)
+                aiSection
+                    .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private var briefingActions: some View {
+        CommandGroup(title: "브리핑", subtitle: "Slack 공유와 미리보기", systemImage: "megaphone") {
+            VStack(spacing: 8) {
+                DashboardButton(title: "출근 브리핑 공유", systemImage: "sun.max") {
+                    Task {
+                        await runDashboardCommand(
+                            ["routine", "morning", "--send-slack"],
+                            title: "출근 브리핑 공유",
+                            running: "출근 브리핑을 Slack으로 공유하는 중...",
+                            success: "출근 브리핑을 Slack으로 공유했습니다",
+                            failure: "출근 브리핑 공유 실패"
+                        )
+                    }
+                }
+                .disabled(runner.isRunning)
+
+                DashboardButton(title: "출근 브리핑 미리보기", systemImage: "doc.text") {
+                    Task {
+                        await runDashboardCommand(
+                            ["routine", "morning", "--dry-run"],
+                            title: "출근 브리핑 미리보기",
+                            running: "출근 브리핑 미리보기를 만드는 중...",
+                            success: "출근 브리핑 미리보기 완료",
+                            failure: "출근 브리핑 미리보기 실패"
+                        )
+                    }
+                }
+                .disabled(runner.isRunning)
+
+                DashboardButton(title: "Jira 브리핑 공유", systemImage: "checklist") {
+                    Task {
+                        await runDashboardCommand(
+                            ["jira", "today", "--send-slack"],
+                            title: "Jira 브리핑 공유",
+                            running: "Jira 브리핑을 Slack으로 공유하는 중...",
+                            success: "Jira 브리핑을 Slack으로 공유했습니다",
+                            failure: "Jira 브리핑 공유 실패"
+                        )
+                    }
+                }
+                .disabled(runner.isRunning)
+
+                DashboardButton(title: "Jira 브리핑 미리보기", systemImage: "doc.text") {
+                    Task {
+                        await runDashboardCommand(
+                            ["jira", "today", "--dry-run"],
+                            title: "Jira 브리핑 미리보기",
+                            running: "Jira 브리핑 미리보기를 만드는 중...",
+                            success: "Jira 브리핑 미리보기 완료",
+                            failure: "Jira 브리핑 미리보기 실패"
+                        )
+                    }
+                }
+                .disabled(runner.isRunning)
+
             }
         }
     }
@@ -211,8 +253,8 @@ struct WorkView: View {
     }
 
     private var toolActions: some View {
-        DashboardPanel(title: "루틴 도구", systemImage: "checklist.checked") {
-            HStack(spacing: 10) {
+        CommandGroup(title: "루틴", subtitle: "점검과 연결 확인", systemImage: "checklist.checked") {
+            VStack(spacing: 8) {
                 DashboardButton(title: "퇴근 전 점검", systemImage: "checkmark.seal") {
                     Task {
                         await runDashboardCommand(
@@ -252,8 +294,6 @@ struct WorkView: View {
                     Task { await showTodayActivity() }
                 }
                 .disabled(runner.isRunning)
-
-                Spacer()
             }
         }
     }
@@ -393,8 +433,8 @@ struct WorkView: View {
     }
 
     private var aiSection: some View {
-        DashboardPanel(title: "AI 작성 보조", systemImage: "brain.head.profile") {
-            HStack(spacing: 10) {
+        CommandGroup(title: "AI 작성", subtitle: "요약과 초안 생성", systemImage: "brain.head.profile") {
+            VStack(spacing: 8) {
                 DashboardButton(title: "업무 요약", systemImage: "text.badge.checkmark") {
                     Task {
                         await runDashboardCommand(
@@ -451,25 +491,6 @@ struct WorkView: View {
                 }
                 .disabled(runner.isRunning)
             }
-        }
-    }
-
-    private var resultSection: some View {
-        DashboardPanel(title: "실행 결과", systemImage: "terminal") {
-            ScrollView {
-                Text(lastMessage.isEmpty ? "아직 실행한 작업이 없습니다." : lastMessage)
-                    .font(.system(.body, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-            }
-            .frame(minHeight: 110)
-            .background(Color(nsColor: .textBackgroundColor).opacity(0.84))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color(nsColor: .separatorColor).opacity(0.8))
-            )
         }
     }
 

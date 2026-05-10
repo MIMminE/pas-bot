@@ -25,45 +25,6 @@ struct StatusPill: View {
     }
 }
 
-struct MetricTile: View {
-    let title: String
-    let value: String
-    let systemImage: String
-    let tint: Color
-
-    var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(tint.opacity(0.16))
-                Image(systemName: systemImage)
-                    .font(.system(size: 21, weight: .semibold))
-                    .foregroundStyle(tint)
-            }
-            .frame(width: 44, height: 44)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(value)
-                    .font(.system(size: 24, weight: .bold))
-                    .monospacedDigit()
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.55))
-        )
-    }
-}
-
 struct DashboardPanel<Content: View>: View {
     let title: String
     let systemImage: String
@@ -114,6 +75,54 @@ struct DashboardButton: View {
         }
         .buttonStyle(.bordered)
         .controlSize(.regular)
+    }
+}
+
+struct CommandGroup<Content: View>: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let content: Content
+
+    init(title: String, subtitle: String, systemImage: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.subtitle = subtitle
+        self.systemImage = systemImage
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.accentColor.opacity(0.14))
+                    Image(systemName: systemImage)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                }
+                .frame(width: 34, height: 34)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.headline)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            content
+        }
+        .padding(12)
+        .background(Color(nsColor: .textBackgroundColor).opacity(0.50))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.45))
+        )
     }
 }
 
@@ -396,20 +405,8 @@ struct WorkNoticeView: View {
                 Spacer()
             }
 
-            ScrollView {
-                Text(notice.message.isEmpty ? "출력 없음" : notice.message)
-                    .font(.system(.body, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-            }
-            .frame(minHeight: 150, maxHeight: 320)
-            .background(Color(nsColor: .textBackgroundColor).opacity(0.9))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color(nsColor: .separatorColor).opacity(0.7))
-            )
+            ResultOutputView(output: notice.message, maxHeight: 320)
+                .frame(minHeight: 150)
 
             HStack {
                 Spacer()

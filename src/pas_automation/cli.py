@@ -316,11 +316,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.area == "repo" and args.command == "update":
-        repo_path = Path(args.repo).expanduser().resolve()
-        managed = {path.resolve() for path in configured_repositories(config)}
-        if repo_path not in managed:
-            raise RuntimeError(f"관리 대상 repository가 아닙니다: {repo_path}")
-
+        repo_path = _managed_repo_path(config, args.repo)
         command = {
             "fetch": "git fetch --prune",
             "pull": "git pull --ff-only",
@@ -345,10 +341,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.area == "repo" and args.command == "commits":
-        repo_path = Path(args.repo).expanduser().resolve()
-        managed = {path.resolve() for path in configured_repositories(config)}
-        if repo_path not in managed:
-            raise RuntimeError(f"관리 대상 repository가 아닙니다: {repo_path}")
+        repo_path = _managed_repo_path(config, args.repo)
         today = __import__("datetime").date.today().isoformat()
         output = commits_between(
             repo_path,
@@ -462,6 +455,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     raise RuntimeError("Unknown command")
+
+
+def _managed_repo_path(config, raw_path: str) -> Path:
+    repo_path = Path(raw_path).expanduser().resolve()
+    managed = {path.resolve() for path in configured_repositories(config)}
+    if repo_path not in managed:
+        raise RuntimeError(f"관리 대상 repository가 아닙니다: {repo_path}")
+    return repo_path
 
 
 if __name__ == "__main__":
