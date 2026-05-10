@@ -7,7 +7,7 @@ from pas_automation.config import load_config
 from pas_automation.features.ai_assistant import git_summary, incident_draft, jira_issue_summary, monthly_review, pr_description
 from pas_automation.features.assignees import list_assignees
 from pas_automation.features.automation import tick
-from pas_automation.features.dev_assistant import audit_jira_keys, branch_name, commit_message, dashboard, evening_check, morning_briefing, pr_draft
+from pas_automation.features.dev_assistant import audit_jira_keys, branch_name, calendar_summary, commit_message, dashboard, evening_check, morning_briefing, pr_draft
 from pas_automation.features.doctor import run_doctor
 from pas_automation.features.health import run_health
 from pas_automation.features.jira_daily import assign_issue, format_today_items
@@ -92,6 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     dev_pr.add_argument("--issue-key", help="PR에 연결할 Jira 이슈 키")
     dev_sub.add_parser("audit-jira-keys", help="Jira 키가 없는 브랜치/커밋 점검")
     dev_sub.add_parser("dashboard", help="로컬 repository 상태 대시보드")
+    dev_sub.add_parser("calendar", help="캘린더 일정 요약")
 
     ai = subparsers.add_parser("ai", help="AI 보고서/초안 생성")
     ai_sub = ai.add_subparsers(dest="command", required=True)
@@ -214,6 +215,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.area == "dev" and args.command == "dashboard":
         print(dashboard(config))
+        return 0
+
+    if args.area == "dev" and args.command == "calendar":
+        print(calendar_summary(config))
         return 0
 
     if args.area == "ai" and args.command == "git-summary":

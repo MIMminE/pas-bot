@@ -54,6 +54,20 @@ class GitHubConfig:
 
 
 @dataclass(frozen=True)
+class CalendarSource:
+    name: str
+    url: str
+    path: Path | None
+
+
+@dataclass(frozen=True)
+class CalendarConfig:
+    enabled: bool
+    lookahead_days: int
+    sources: list[CalendarSource]
+
+
+@dataclass(frozen=True)
 class FeatureConfig:
     jira: bool
     git: bool
@@ -74,6 +88,7 @@ class FeatureConfig:
             "ai": self.ai,
             "dev_tools": self.dev_tools,
             "notifications": self.notifications,
+            "calendar": self.routines,
         }.get(task_name, True)
 
     @property
@@ -120,6 +135,7 @@ class AppConfig:
     slack: SlackConfig
     openai: OpenAIConfig
     github: GitHubConfig
+    calendar: CalendarConfig
     features: FeatureConfig
     schedules: dict[str, ScheduleConfig]
     assignees_path: Path
@@ -137,6 +153,7 @@ def load_config(path: str | Path) -> AppConfig:
     slack_webhooks_raw = slack_raw.get("webhooks", {})
     openai_raw = raw.get("openai", {})
     github_raw = raw.get("github", {})
+    calendar_raw = raw.get("calendar", {})
     features_raw = raw.get("features", {})
     feature_groups_raw = raw.get("feature_groups", {})
     schedules_raw = raw.get("schedules", {})
@@ -208,6 +225,18 @@ def load_config(path: str | Path) -> AppConfig:
             repositories=[
                 GitHubRepository(owner=str(item["owner"]), name=str(item["name"]))
                 for item in github_raw.get("repositories", [])
+            ],
+        ),
+        calendar=CalendarConfig(
+            enabled=bool(calendar_raw.get("enabled", False)),
+            lookahead_days=int(calendar_raw.get("lookahead_days", 1)),
+            sources=[
+                CalendarSource(
+                    name=str(item.get("name", "calendar")),
+                    url=str(item.get("url", "")),
+                    path=Path(item["path"]).expanduser() if item.get("path") else None,
+                )
+                for item in calendar_raw.get("sources", [])
             ],
         ),
         features=FeatureConfig(

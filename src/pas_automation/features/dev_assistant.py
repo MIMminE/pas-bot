@@ -7,6 +7,7 @@ from pas_automation.config import AppConfig
 from pas_automation.features.jira_daily import format_today_items
 from pas_automation.features.repo_report import report
 from pas_automation.features.repo_status import collect_repo_status, format_repo_status
+from pas_automation.integrations.calendar import format_calendar, upcoming_events
 from pas_automation.integrations.git_repos import changed_files, current_branch, discover_repositories, recent_commits, staged_files
 from pas_automation.integrations.github import GitHubClient
 from pas_automation.integrations.slack import SlackWebhook, context_block, divider_block, header_block, section_block
@@ -29,7 +30,7 @@ def morning_briefing(config: AppConfig, *, send_slack: bool, dry_run: bool = Fal
         _format_open_prs(config, dry_run=dry_run),
         "",
         "[캘린더]",
-        "캘린더 연동 미설정: Google/Outlook 연결 추가 예정",
+        calendar_summary(config),
     ]
     message = "\n".join(sections)
     if send_slack and not dry_run:
@@ -113,7 +114,28 @@ def audit_jira_keys(config: AppConfig) -> str:
 
 def dashboard(config: AppConfig) -> str:
     _ensure_dev_tools(config)
-    return format_repo_status(collect_repo_status(config))
+    return "\n\n".join(
+        [
+            "PAS 통합 대시보드",
+            "[캘린더]",
+            calendar_summary(config),
+            "[Git]",
+            format_repo_status(collect_repo_status(config)),
+            "[미처리 PR]",
+            _format_open_prs(config, dry_run=False),
+        ]
+    )
+
+
+def calendar_summary(config: AppConfig) -> str:
+    if not config.calendar.enabled:
+        return "캘린더 기능 꺼짐: [calendar].enabled = true 설정 필요"
+    if not config.calendar.sources:
+        return "캘린더 소스 없음: [[calendar.sources]]에 iCal URL 또는 .ics 파일 경로 입력"
+    try:
+        return format_calendar(upcoming_events(config.calendar, timezone=config.general.timezone))
+    except Exception as exc:
+        return f"캘린더 조회 실패: {exc}"
 
 
 def _ensure_dev_tools(config: AppConfig) -> None:
@@ -126,6 +148,8 @@ def _format_open_prs(config: AppConfig, *, dry_run: bool = False) -> str:
         return "[dry-run] GitHub 미처리 PR 조회"
     if not config.github.repositories:
         return "GitHub repository 설정 없음"
+    if not config.github.token:
+        return "GitHub 토큰 없음: PR 조회를 건너뜁니다"
     try:
         prs = GitHubClient(config.github).open_pull_requests(max_per_repo=10)
     except RuntimeError as exc:
