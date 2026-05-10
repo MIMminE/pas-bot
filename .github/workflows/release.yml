@@ -123,6 +123,7 @@ jobs:
       - name: Build SwiftUI menu bar executable
         shell: bash
         run: |
+          set +e
           set -o pipefail
           swift build -c release --package-path apps/macos/PASMenuBar 2>&1 | tee swift-build.log
           status=${PIPESTATUS[0]}
