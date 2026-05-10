@@ -24,7 +24,9 @@ struct SetupView: View {
 
     init(runner: PASRunner) {
         self.runner = runner
-        _settings = State(initialValue: runner.loadSettings())
+        let loadedSettings = runner.loadSettings()
+        _settings = State(initialValue: loadedSettings)
+        _remoteCloneRoot = State(initialValue: loadedSettings.cloneRoot)
     }
 
     var body: some View {
@@ -286,11 +288,9 @@ struct SetupView: View {
                     .textFieldStyle(.roundedBorder)
 
                 Button("위치 선택") {
-                    runner.selectRepositoryRoot { path in
+                    runner.selectCloneDirectory { path in
                         remoteCloneRoot = path
-                        if !settings.repoRoots.contains(where: { $0.path == path }) {
-                            settings.repoRoots.append(LocalRepositoryRoot(path: path, recursive: false))
-                        }
+                        settings.cloneRoot = path
                     }
                 }
 
@@ -559,9 +559,7 @@ struct SetupView: View {
 
     private func loadRemoteRepositories() async {
         isLoadingRemoteRepositories = true
-        if remoteCloneRoot.isEmpty, let firstRoot = settings.repoRoots.first(where: { !$0.path.isEmpty }) {
-            remoteCloneRoot = firstRoot.path
-        }
+        settings.cloneRoot = remoteCloneRoot.trimmingCharacters(in: .whitespacesAndNewlines)
         remoteRepositories = await runner.loadRemoteRepositories(owner: remoteOwner)
         selectedRemoteRepositoryIDs.removeAll()
         isLoadingRemoteRepositories = false
@@ -574,9 +572,7 @@ struct SetupView: View {
         guard !selected.isEmpty else { return }
 
         isCloningRemoteRepositories = true
-        if !settings.repoRoots.contains(where: { $0.path == targetRoot }) {
-            settings.repoRoots.append(LocalRepositoryRoot(path: targetRoot, recursive: false))
-        }
+        settings.cloneRoot = targetRoot
         for repo in selected {
             let result = await runner.cloneRemoteRepository(repo, targetRoot: targetRoot)
             if result.succeeded {

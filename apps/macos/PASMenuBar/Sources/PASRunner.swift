@@ -195,7 +195,7 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
         }
     }
 
-    func selectRepositoryRoot(onSelect: @escaping (String) -> Void) {
+    func selectCloneDirectory(onSelect: @escaping (String) -> Void) {
         selectDirectory { url in
             onSelect(url.path)
         }

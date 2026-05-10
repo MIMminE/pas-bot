@@ -22,7 +22,7 @@ struct PASSettingsStore {
             jiraDefaultProject: readConfigValue(section: "jira", key: "default_project"),
             gitAuthor: readConfigValue(section: "general", key: "git_author"),
             workEndTime: readConfigValue(section: "general", key: "work_end_time"),
-            repoRoots: readRepositoryRoots(),
+            cloneRoot: readConfigValue(section: "developer", key: "clone_root"),
             repoProjectPaths: Set(readRepositoryProjects()),
             openAIKey: readConfigValue(section: "openai", key: "api_key"),
             jiraDailyEnabled: readBoolConfigValue(section: "feature_groups", key: "jira", defaultValue: true),
@@ -87,52 +87,6 @@ struct PASSettingsStore {
         return value.lowercased() == "true"
     }
 
-    private func readRepositoryRoots() -> [LocalRepositoryRoot] {
-        guard let text = try? String(contentsOf: configURL, encoding: .utf8) else { return [] }
-        var roots: [LocalRepositoryRoot] = []
-        var inRoot = false
-        var path = ""
-        var recursive = true
-
-        func flush() {
-            if !path.isEmpty {
-                roots.append(LocalRepositoryRoot(path: path, recursive: recursive))
-            }
-            path = ""
-            recursive = true
-        }
-
-        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed == "[[repositories.roots]]" {
-                if inRoot {
-                    flush()
-                }
-                inRoot = true
-                continue
-            }
-            if trimmed.hasPrefix("[") {
-                if inRoot {
-                    flush()
-                    inRoot = false
-                }
-                continue
-            }
-            guard inRoot, let separator = trimmed.firstIndex(of: "=") else { continue }
-            let key = trimmed[..<separator].trimmingCharacters(in: .whitespaces)
-            let value = unquote(String(trimmed[trimmed.index(after: separator)...].trimmingCharacters(in: .whitespaces)))
-            if key == "path" {
-                path = value
-            } else if key == "recursive" {
-                recursive = value.lowercased() != "false"
-            }
-        }
-        if inRoot {
-            flush()
-        }
-        return roots
-    }
-
     private func readRepositoryProjects() -> [String] {
         guard let text = try? String(contentsOf: configURL, encoding: .utf8) else { return [] }
         var projects: [String] = []
@@ -180,6 +134,7 @@ struct PASSettingsStore {
         text = replaceConfigValue(text, section: "general", key: "git_author", value: settings.gitAuthor)
         text = replaceConfigValue(text, section: "general", key: "work_end_time", value: settings.workEndTime)
         text = replaceConfigValue(text, section: "developer", key: "default_ide_app", value: settings.defaultIDEAppName)
+        text = replaceConfigValue(text, section: "developer", key: "clone_root", value: settings.cloneRoot)
         text = replaceConfigValue(text, section: "jira", key: "base_url", value: settings.jiraBaseURL)
         text = replaceConfigValue(text, section: "jira", key: "email", value: settings.jiraEmail)
         text = replaceConfigValue(text, section: "jira", key: "api_token", value: settings.jiraApiToken)
@@ -198,7 +153,7 @@ struct PASSettingsStore {
         text = replaceConfigValue(text, section: "slack.channels", key: "alerts", value: settings.slackAlertsChannelID)
         text = removeConfigSection(text, section: "github")
         text = removeArraySection(text, section: "github.repositories")
-        text = replaceRepositoryRoots(text, roots: settings.repoRoots)
+        text = removeArraySection(text, section: "repositories.roots")
         text = replaceRepositoryProjects(text, projectPaths: settings.repoProjectPaths)
         text = replaceConfigValue(text, section: "openai", key: "api_key", value: settings.openAIKey)
         text = replaceConfigBoolValue(text, section: "feature_groups", key: "jira", value: settings.jiraDailyEnabled)
@@ -279,46 +234,6 @@ struct PASSettingsStore {
             if !isRemoving {
                 output.append(line)
             }
-        }
-        return output.joined(separator: "\n")
-    }
-
-    private func replaceRepositoryRoots(_ text: String, roots: [LocalRepositoryRoot]) -> String {
-        let lines = text.components(separatedBy: .newlines)
-        var output: [String] = []
-        var index = 0
-        while index < lines.count {
-            let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
-            if trimmed == "[[repositories.roots]]" {
-                index += 1
-                while index < lines.count {
-                    let next = lines[index].trimmingCharacters(in: .whitespaces)
-                    if next.hasPrefix("[") {
-                        break
-                    }
-                    index += 1
-                }
-                continue
-            }
-            output.append(lines[index])
-            index += 1
-        }
-
-        let rendered = roots.compactMap { root -> String? in
-            let path = root.path.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !path.isEmpty else { return nil }
-            return """
-
-            [[repositories.roots]]
-            path = "\(escapeToml(path))"
-            recursive = \(root.recursive ? "true" : "false")
-            """
-        }
-        if !rendered.isEmpty {
-            if output.last?.isEmpty == false {
-                output.append("")
-            }
-            output.append(rendered.joined(separator: "\n"))
         }
         return output.joined(separator: "\n")
     }

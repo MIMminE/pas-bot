@@ -28,7 +28,7 @@ struct PASSettings {
     var jiraDefaultProject: String
     var gitAuthor: String
     var workEndTime: String
-    var repoRoots: [LocalRepositoryRoot]
+    var cloneRoot: String
     var repoProjectPaths: Set<String>
     var openAIKey: String
     var jiraDailyEnabled: Bool
@@ -93,15 +93,6 @@ struct SlackChannel: Identifiable, Hashable, Sendable {
 
     var label: String {
         "#\(name)\(isPrivate ? " (private)" : "")"
-    }
-}
-
-struct LocalRepositoryRoot: Identifiable, Hashable, Sendable {
-    var path: String
-    var recursive: Bool
-
-    var id: String {
-        path
     }
 }
 

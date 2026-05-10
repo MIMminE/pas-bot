@@ -115,12 +115,6 @@ class ScheduleConfig:
 
 
 @dataclass(frozen=True)
-class RepoRoot:
-    path: Path
-    recursive: bool
-
-
-@dataclass(frozen=True)
 class RepoProject:
     path: Path
 
@@ -136,7 +130,6 @@ class AppConfig:
     features: FeatureConfig
     schedules: dict[str, ScheduleConfig]
     assignees_path: Path
-    repo_roots: list[RepoRoot]
     repo_projects: list[RepoProject]
 
 
@@ -161,14 +154,6 @@ def load_config(path: str | Path) -> AppConfig:
     if data_dir.name == ".pas":
         data_dir = config_path.parent
 
-    repo_roots_raw = raw.get("repositories", {}).get("roots", [])
-    repo_roots = [
-        RepoRoot(
-            path=Path(item["path"]).expanduser(),
-            recursive=bool(item.get("recursive", True)),
-        )
-        for item in repo_roots_raw
-    ]
     repo_projects_raw = raw.get("repositories", {}).get("projects", [])
     repo_projects = [
         RepoProject(path=Path(item["path"]).expanduser())
@@ -256,7 +241,6 @@ def load_config(path: str | Path) -> AppConfig:
             }.items()
         },
         assignees_path=config_path.parent / "assignees.json",
-        repo_roots=repo_roots,
         repo_projects=repo_projects,
     )
 

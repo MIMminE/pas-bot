@@ -14,6 +14,8 @@ data_dir = ".pas"
 [developer]
 # 작업 대시보드에서 repository를 열 기본 IDE 앱 이름입니다. 예: Cursor, Visual Studio Code, IntelliJ IDEA
 default_ide_app = ""
+# GitHub 후보에서 선택한 repository를 내려받을 기본 위치입니다.
+clone_root = "/Users/yourname/STL"
 
 [jira]
 # Atlassian Jira 사이트 주소입니다.
@@ -129,12 +131,6 @@ time = "08:50"
 catch_up_if_missed = true
 weekdays_only = true
 holiday_dates = []
-
-[[repositories.roots]]
-# gh repo clone으로 repository를 내려받을 기본 위치입니다.
-path = "/Users/yourname/STL"
-# 호환용 값입니다. 현재 gh CLI 방식에서는 사용하지 않습니다.
-recursive = false
 
 # 실제 관리할 Git repository입니다. 설정 화면에서 GitHub 후보를 선택해 가져오면 자동으로 추가됩니다.
 # 비워 두면 Git repository 자동화는 실행할 관리 대상이 없는 상태로 동작합니다.

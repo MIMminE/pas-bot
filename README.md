@@ -65,6 +65,10 @@ alerts = ""
 api_key = ""
 model = "gpt-5-mini"
 
+[developer]
+default_ide_app = ""
+clone_root = "/Users/yourname/STL"
+
 [calendar]
 enabled = false
 lookahead_days = 1
@@ -88,10 +92,6 @@ time = "09:00"
 catch_up_if_missed = true
 weekdays_only = true
 holiday_dates = []
-
-[[repositories.roots]]
-path = "/Users/yourname/STL"
-recursive = false
 
 # 설정 화면에서 GitHub 후보를 가져오면 관리 repository가 자동으로 추가됩니다.
 # [[repositories.projects]]
