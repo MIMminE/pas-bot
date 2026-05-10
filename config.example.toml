@@ -20,6 +20,8 @@ webhook_url = ""
 [slack.webhooks]
 default = ""
 test = ""
+morning_briefing = ""
+evening_check = ""
 jira_daily = ""
 git_report = ""
 git_status = ""
@@ -37,24 +39,47 @@ owner = "your-org"
 name = "your-repo"
 
 [features]
+morning_briefing = true
+evening_check = true
 jira_daily = true
 git_report = true
 git_status = true
+dev_tools = true
+
+[schedules.morning_briefing]
+enabled = false
+time = "09:00"
+catch_up_if_missed = true
+weekdays_only = true
+holiday_dates = []
+
+[schedules.evening_check]
+enabled = false
+time = "18:20"
+catch_up_if_missed = true
+weekdays_only = true
+holiday_dates = []
 
 [schedules.jira_daily]
 enabled = false
 time = "09:00"
 catch_up_if_missed = true
+weekdays_only = true
+holiday_dates = []
 
 [schedules.git_report]
 enabled = false
 time = "18:30"
 catch_up_if_missed = true
+weekdays_only = true
+holiday_dates = []
 
 [schedules.git_status]
 enabled = false
 time = "09:10"
 catch_up_if_missed = true
+weekdays_only = true
+holiday_dates = []
 
 [[repositories.roots]]
 path = "/Users/yourname/STL"

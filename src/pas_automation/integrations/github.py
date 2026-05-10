@@ -14,6 +14,16 @@ class GitHubBranchMatch:
     url: str
 
 
+@dataclass(frozen=True)
+class GitHubPullRequest:
+    repository: str
+    number: int
+    title: str
+    url: str
+    state: str
+    draft: bool
+
+
 class GitHubClient:
     def __init__(self, config: GitHubConfig) -> None:
         self.config = config
@@ -47,3 +57,23 @@ class GitHubClient:
         url = f"https://api.github.com/repos/{repo.owner}/{repo.name}/branches?per_page=100"
         payload = json_request("GET", url, headers=self.headers, timeout=30)
         return payload if isinstance(payload, list) else []
+
+    def open_pull_requests(self, *, max_per_repo: int = 10) -> list[GitHubPullRequest]:
+        items: list[GitHubPullRequest] = []
+        for repo in self.config.repositories:
+            url = f"https://api.github.com/repos/{repo.owner}/{repo.name}/pulls?state=open&per_page={max_per_repo}"
+            payload = json_request("GET", url, headers=self.headers, timeout=30)
+            if not isinstance(payload, list):
+                continue
+            for pr in payload[:max_per_repo]:
+                items.append(
+                    GitHubPullRequest(
+                        repository=f"{repo.owner}/{repo.name}",
+                        number=int(pr.get("number", 0)),
+                        title=str(pr.get("title", "")),
+                        url=str(pr.get("html_url", "")),
+                        state=str(pr.get("state", "open")),
+                        draft=bool(pr.get("draft", False)),
+                    )
+                )
+        return items

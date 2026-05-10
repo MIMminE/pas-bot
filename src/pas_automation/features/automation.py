@@ -6,12 +6,14 @@ import traceback
 
 from pas_automation.app_state import read_state, write_state
 from pas_automation.config import AppConfig
+from pas_automation.features.dev_assistant import evening_check, morning_briefing
 from pas_automation.features.jira_daily import format_today_items
 from pas_automation.features.repo_report import report
 from pas_automation.features.repo_status import summarize_repositories
+from pas_automation.integrations.slack import SlackWebhook, section_block
 
 
-TASKS = ("jira_daily", "git_report", "git_status")
+TASKS = ("morning_briefing", "evening_check", "jira_daily", "git_report", "git_status")
 
 
 def tick(config: AppConfig, *, task_name: str | None = None, dry_run: bool = False) -> str:
@@ -37,6 +39,7 @@ def tick(config: AppConfig, *, task_name: str | None = None, dry_run: bool = Fal
         except Exception as exc:
             _mark_failure(state, task, now, exc)
             write_state(state)
+            _send_failure_alert(config, task, exc)
             lines.append(f"{task}: 실패 - {exc}")
             raise
         else:
@@ -59,6 +62,10 @@ def _should_run(config: AppConfig, state: dict, task: str, now: datetime) -> _De
         return _Decision(False, "기능이 꺼져 있습니다")
     if schedule is None or not schedule.enabled:
         return _Decision(False, "스케줄이 꺼져 있습니다")
+    if schedule.weekdays_only and now.weekday() >= 5:
+        return _Decision(False, "주말 제외 설정으로 실행하지 않습니다")
+    if now.date().isoformat() in schedule.holiday_dates:
+        return _Decision(False, "휴일/연차 제외 설정으로 실행하지 않습니다")
     if _sent_today(state, task, now):
         return _Decision(False, "오늘 이미 전송했습니다")
     scheduled_time = _parse_time(schedule.time)
@@ -70,6 +77,12 @@ def _should_run(config: AppConfig, state: dict, task: str, now: datetime) -> _De
 
 
 def _run_task(config: AppConfig, task: str) -> None:
+    if task == "morning_briefing":
+        morning_briefing(config, send_slack=True)
+        return
+    if task == "evening_check":
+        evening_check(config, send_slack=True)
+        return
     if task == "jira_daily":
         format_today_items(config, send_slack=True)
         return
@@ -80,6 +93,16 @@ def _run_task(config: AppConfig, task: str) -> None:
         summarize_repositories(config, send_slack=True, dry_run=False)
         return
     raise RuntimeError(f"알 수 없는 자동화 작업입니다: {task}")
+
+
+def _send_failure_alert(config: AppConfig, task: str, exc: Exception) -> None:
+    try:
+        SlackWebhook(config.slack, destination="alerts").send(
+            f"PAS 자동 실행 실패: {task}",
+            blocks=[section_block(f"*PAS 자동 실행 실패*\n작업: `{task}`\n오류: `{exc}`")],
+        )
+    except Exception:
+        return
 
 
 def _sent_today(state: dict, task: str, now: datetime) -> bool:

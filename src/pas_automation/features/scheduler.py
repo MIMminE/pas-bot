@@ -11,6 +11,8 @@ from pas_automation.config import AppConfig, ScheduleConfig
 
 
 TASK_LABELS = {
+    "morning_briefing": "Morning Briefing",
+    "evening_check": "Evening Check",
     "jira_daily": "Jira Daily",
     "git_report": "Git Report",
     "git_status": "Git Status",
@@ -48,8 +50,10 @@ def schedule_status(config: AppConfig) -> str:
         feature = "켜짐" if config.features.enabled(task) else "꺼짐"
         enabled = "켜짐" if schedule.enabled else "꺼짐"
         catch_up = "켜짐" if schedule.catch_up_if_missed else "꺼짐"
+        weekdays = "평일만" if schedule.weekdays_only else "매일"
+        holidays = f", 제외일 {len(schedule.holiday_dates)}개" if schedule.holiday_dates else ""
         installed = "등록됨" if _task_installed(system, task) else "미등록"
-        lines.append(f"{label}: 기능 {feature}, 스케줄 {enabled}, 시간 {schedule.time}, 놓친 실행 보정 {catch_up}, OS {installed}")
+        lines.append(f"{label}: 기능 {feature}, 스케줄 {enabled}, 시간 {schedule.time}, {weekdays}{holidays}, 놓친 실행 보정 {catch_up}, OS {installed}")
     return "\n".join(lines)
 
 

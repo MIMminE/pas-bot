@@ -6,6 +6,7 @@ from pas_automation.app_state import default_config_path, default_env_path, init
 from pas_automation.config import load_config
 from pas_automation.features.assignees import list_assignees
 from pas_automation.features.automation import tick
+from pas_automation.features.dev_assistant import audit_jira_keys, branch_name, commit_message, dashboard, evening_check, morning_briefing, pr_draft
 from pas_automation.features.doctor import run_doctor
 from pas_automation.features.jira_daily import assign_issue, format_today_items
 from pas_automation.features.repo_report import report, snapshot
@@ -63,8 +64,32 @@ def build_parser() -> argparse.ArgumentParser:
     automation = subparsers.add_parser("automation", help="Scheduled automation runner")
     automation_sub = automation.add_subparsers(dest="command", required=True)
     automation_tick = automation_sub.add_parser("tick", help="Run due scheduled automations once")
-    automation_tick.add_argument("--task", choices=["jira_daily", "git_report", "git_status"])
+    automation_tick.add_argument("--task", choices=["morning_briefing", "evening_check", "jira_daily", "git_report", "git_status"])
     automation_tick.add_argument("--dry-run", action="store_true")
+
+    routine = subparsers.add_parser("routine", help="Developer daily routines")
+    routine_sub = routine.add_subparsers(dest="command", required=True)
+    routine_morning = routine_sub.add_parser("morning", help="Build morning briefing")
+    routine_morning.add_argument("--send-slack", action="store_true")
+    routine_morning.add_argument("--dry-run", action="store_true")
+    routine_evening = routine_sub.add_parser("evening", help="Build evening check")
+    routine_evening.add_argument("--send-slack", action="store_true")
+    routine_evening.add_argument("--dry-run", action="store_true")
+
+    dev = subparsers.add_parser("dev", help="Developer helper tools")
+    dev_sub = dev.add_subparsers(dest="command", required=True)
+    dev_branch = dev_sub.add_parser("branch-name", help="Suggest branch name")
+    dev_branch.add_argument("issue_key")
+    dev_branch.add_argument("summary")
+    dev_branch.add_argument("--prefix", default="feature")
+    dev_commit = dev_sub.add_parser("commit-message", help="Draft commit message")
+    dev_commit.add_argument("--repo")
+    dev_commit.add_argument("--issue-key")
+    dev_pr = dev_sub.add_parser("pr-draft", help="Draft PR title and body")
+    dev_pr.add_argument("--repo")
+    dev_pr.add_argument("--issue-key")
+    dev_sub.add_parser("audit-jira-keys", help="Find branches/commits without Jira issue keys")
+    dev_sub.add_parser("dashboard", help="Show local repo dashboard")
 
     status = subparsers.add_parser("status", help="Local app status and diagnostics")
     status_sub = status.add_subparsers(dest="command", required=True)
@@ -136,6 +161,34 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.area == "automation" and args.command == "tick":
         print(tick(config, task_name=args.task, dry_run=args.dry_run))
+        return 0
+
+    if args.area == "routine" and args.command == "morning":
+        print(morning_briefing(config, send_slack=args.send_slack, dry_run=args.dry_run))
+        return 0
+
+    if args.area == "routine" and args.command == "evening":
+        print(evening_check(config, send_slack=args.send_slack, dry_run=args.dry_run))
+        return 0
+
+    if args.area == "dev" and args.command == "branch-name":
+        print(branch_name(args.issue_key, args.summary, prefix=args.prefix))
+        return 0
+
+    if args.area == "dev" and args.command == "commit-message":
+        print(commit_message(config, args.repo, args.issue_key))
+        return 0
+
+    if args.area == "dev" and args.command == "pr-draft":
+        print(pr_draft(config, args.repo, args.issue_key))
+        return 0
+
+    if args.area == "dev" and args.command == "audit-jira-keys":
+        print(audit_jira_keys(config))
+        return 0
+
+    if args.area == "dev" and args.command == "dashboard":
+        print(dashboard(config))
         return 0
 
     if args.area == "status" and args.command == "doctor":

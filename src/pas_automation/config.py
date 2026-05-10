@@ -55,9 +55,12 @@ class GitHubConfig:
 
 @dataclass(frozen=True)
 class FeatureConfig:
+    morning_briefing: bool
+    evening_check: bool
     jira_daily: bool
     git_report: bool
     git_status: bool
+    dev_tools: bool
 
     def enabled(self, task_name: str) -> bool:
         return bool(getattr(self, task_name, False))
@@ -68,6 +71,8 @@ class ScheduleConfig:
     enabled: bool
     time: str
     catch_up_if_missed: bool
+    weekdays_only: bool
+    holiday_dates: set[str]
 
 
 @dataclass(frozen=True)
@@ -150,7 +155,16 @@ def load_config(path: str | Path) -> AppConfig:
             webhook_url=_config_or_env(slack_raw, "webhook_url", slack_raw.get("webhook_url_env", "SLACK_WEBHOOK_URL")),
             webhooks={
                 str(key): _config_or_env(slack_webhooks_raw, str(key), "")
-                for key in ("default", "test", "jira_daily", "git_report", "git_status", "alerts")
+                for key in (
+                    "default",
+                    "test",
+                    "morning_briefing",
+                    "evening_check",
+                    "jira_daily",
+                    "git_report",
+                    "git_status",
+                    "alerts",
+                )
             },
         ),
         openai=OpenAIConfig(
@@ -165,13 +179,18 @@ def load_config(path: str | Path) -> AppConfig:
             ],
         ),
         features=FeatureConfig(
+            morning_briefing=bool(features_raw.get("morning_briefing", True)),
+            evening_check=bool(features_raw.get("evening_check", True)),
             jira_daily=bool(features_raw.get("jira_daily", True)),
             git_report=bool(features_raw.get("git_report", True)),
             git_status=bool(features_raw.get("git_status", True)),
+            dev_tools=bool(features_raw.get("dev_tools", True)),
         ),
         schedules={
             task_name: _load_schedule(schedules_raw, task_name, default_time)
             for task_name, default_time in {
+                "morning_briefing": "09:00",
+                "evening_check": "18:20",
                 "jira_daily": "09:00",
                 "git_report": "18:30",
                 "git_status": "09:10",
@@ -195,4 +214,6 @@ def _load_schedule(raw: dict, task_name: str, default_time: str) -> ScheduleConf
         enabled=bool(section.get("enabled", False)),
         time=str(section.get("time", default_time)),
         catch_up_if_missed=bool(section.get("catch_up_if_missed", True)),
+        weekdays_only=bool(section.get("weekdays_only", True)),
+        holiday_dates={str(item) for item in section.get("holiday_dates", [])},
     )

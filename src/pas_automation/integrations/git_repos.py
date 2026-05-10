@@ -81,3 +81,25 @@ def ahead_behind(repo: Path) -> tuple[int | None, int | None]:
         return None, None
     behind, ahead = int(counts[0]), int(counts[1])
     return ahead, behind
+
+
+def current_branch(repo: Path) -> str:
+    return git(repo, "branch", "--show-current") or "detached"
+
+
+def recent_commits(repo: Path, *, author: str = "", max_count: int = 10) -> list[str]:
+    args = ["log", f"--max-count={max_count}", "--pretty=format:%h | %s"]
+    if author:
+        args.insert(1, f"--author={author}")
+    output = git(repo, *args)
+    return [line for line in output.splitlines() if line.strip()]
+
+
+def staged_files(repo: Path) -> list[str]:
+    output = git(repo, "diff", "--cached", "--name-only")
+    return [line for line in output.splitlines() if line.strip()]
+
+
+def changed_files(repo: Path) -> list[str]:
+    output = git(repo, "status", "--porcelain=v1")
+    return [line[3:] for line in output.splitlines() if line.strip()]
