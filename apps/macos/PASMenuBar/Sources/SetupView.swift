@@ -14,6 +14,7 @@ struct SetupView: View {
     @State private var isLoadingLocalRepositories = false
     @State private var isLoadingRemoteRepositories = false
     @State private var isCloningRemoteRepositories = false
+    @State private var isCheckingGitHubAuth = false
     @State private var isSlackExpanded = true
     @State private var isJiraExpanded = true
     @State private var isDeveloperExpanded = true
@@ -201,7 +202,7 @@ struct SetupView: View {
                 GuideBox(
                     title: "GitHub CLI 연결 안내",
                     lines: [
-                        "터미널에서 gh auth login을 한 번 진행하면 PAS가 같은 로그인 상태로 repository 후보를 조회합니다.",
+                        "GitHub CLI 로그인을 한 번 진행하면 PAS가 같은 로그인 상태로 repository 후보를 조회합니다.",
                         "조직 repository가 보이지 않으면 GitHub 조직 SSO 승인이 필요할 수 있습니다.",
                         "선택한 repository는 지정한 clone 위치에 내려받고, 이미 있으면 fetch로 원격 상태만 갱신합니다."
                     ],
@@ -211,6 +212,8 @@ struct SetupView: View {
                     ],
                     runner: runner
                 )
+
+                githubAuthControls
 
                 remoteRepositorySection
 
@@ -333,6 +336,41 @@ struct SetupView: View {
                     Spacer()
                 }
             }
+        }
+        .padding(10)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var githubAuthControls: some View {
+        HStack(spacing: 8) {
+            Button(isCheckingGitHubAuth ? "확인 중..." : "gh 로그인 상태 확인") {
+                isCheckingGitHubAuth = true
+                Task {
+                    _ = await runner.checkGitHubAuthStatus()
+                    isCheckingGitHubAuth = false
+                }
+            }
+            .disabled(runner.isRunning || isCheckingGitHubAuth)
+
+            Button("터미널에서 gh 로그인 시작") {
+                runner.openGitHubLoginInTerminal()
+            }
+            .disabled(runner.isRunning)
+
+            if isCheckingGitHubAuth {
+                ProgressView()
+                    .controlSize(.small)
+                Text("gh auth status 실행 중")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("로그인 후 후보 불러오기를 누르면 접근 가능한 repository가 표시됩니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
         }
         .padding(10)
         .background(Color(nsColor: .controlBackgroundColor))

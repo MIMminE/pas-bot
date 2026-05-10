@@ -354,6 +354,54 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
         return Self.parseRemoteRepositories(result.output)
     }
 
+    func checkGitHubAuthStatus() async -> PASCommandResult {
+        status = "GitHub CLI 로그인 상태를 확인하는 중..."
+        let result = await Self.executeDetachedRaw(["gh", "auth", "status"])
+        lastOutput = result.output
+        status = result.succeeded ? "GitHub CLI 로그인 상태 정상" : "GitHub CLI 로그인이 필요합니다"
+        openOutputWindow(
+            title: result.succeeded ? "GitHub CLI 로그인 상태" : "GitHub CLI 로그인 필요",
+            output: result.output.isEmpty ? result.summary : result.output
+        )
+        return PASCommandResult(succeeded: result.succeeded, output: result.output, summary: result.summary)
+    }
+
+    func openGitHubLoginInTerminal() {
+        do {
+            try Self.prepareSupportFiles()
+            let scriptURL = Self.supportDirectory().appendingPathComponent("gh-auth-login.command")
+            let script = """
+            #!/bin/zsh
+            clear
+            echo "PAS GitHub CLI 로그인"
+            echo ""
+            if ! command -v gh >/dev/null 2>&1; then
+              echo "GitHub CLI(gh)를 찾지 못했습니다."
+              echo "먼저 https://cli.github.com/ 에서 gh를 설치해 주세요."
+              echo ""
+              read -r "?Enter를 누르면 닫힙니다."
+              exit 1
+            fi
+            echo "브라우저 또는 터미널 안내에 따라 GitHub 로그인을 완료해 주세요."
+            echo ""
+            gh auth login
+            echo ""
+            echo "현재 로그인 상태:"
+            gh auth status
+            echo ""
+            read -r "?완료 후 Enter를 누르면 닫힙니다."
+            """
+            try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+            NSWorkspace.shared.open(scriptURL)
+            status = "GitHub CLI 로그인 터미널을 열었습니다"
+        } catch {
+            let message = "GitHub CLI 로그인 터미널 열기 실패: \(error.localizedDescription)"
+            status = message
+            openOutputWindow(title: "GitHub CLI 로그인 오류", output: message)
+        }
+    }
+
     func cloneRemoteRepository(_ repo: GitHubRemoteRepositoryOption, targetRoot: String) async -> PASCommandResult {
         let result = await Self.executeDetached(["repo", "clone", "--repo", repo.cloneSource, "--target-root", targetRoot])
         lastOutput = result.output
@@ -597,17 +645,30 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
         }.value
     }
 
+    private nonisolated static func executeDetachedRaw(_ command: [String]) async -> (succeeded: Bool, output: String, summary: String) {
+        await Task.detached(priority: .userInitiated) {
+            Self.executeRaw(command)
+        }.value
+    }
+
     private nonisolated static func execute(_ arguments: [String]) -> (succeeded: Bool, output: String, summary: String) {
+        let executable = pasExecutable()
+        return executeRaw(executable.prefixArguments + [
+            "--config",
+            configURL().path
+        ] + arguments, executableURL: executable.url)
+    }
+
+    private nonisolated static func executeRaw(
+        _ arguments: [String],
+        executableURL: URL = URL(fileURLWithPath: "/usr/bin/env")
+    ) -> (succeeded: Bool, output: String, summary: String) {
         let process = Process()
         let stdout = Pipe()
         let stderr = Pipe()
 
-        let executable = pasExecutable()
-        process.executableURL = executable.url
-        process.arguments = executable.prefixArguments + [
-            "--config",
-            configURL().path
-        ] + arguments
+        process.executableURL = executableURL
+        process.arguments = arguments
         process.environment = processEnvironment()
         process.standardOutput = stdout
         process.standardError = stderr
