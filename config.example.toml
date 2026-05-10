@@ -34,7 +34,7 @@ high_priority_jql = "assignee = currentUser() AND statusCategory != Done AND pri
 bot_token = ""
 
 [slack.channels]
-# 기능별 Slack 채널 ID입니다. 설정 마법사에서 채널 목록을 불러와 선택할 수 있습니다.
+# 기능별 Slack 채널 ID입니다. 설정 화면에서 채널 목록을 불러와 선택할 수 있습니다.
 default = ""
 test = ""
 morning_briefing = ""
@@ -124,7 +124,7 @@ path = "/Users/yourname/STL"
 # true면 하위 폴더를 재귀적으로 탐색합니다.
 recursive = true
 
-# 실제 관리할 Git repository를 제한하려면 설정 마법사에서 프로젝트를 선택합니다.
+# 실제 관리할 Git repository를 제한하려면 설정 화면에서 프로젝트를 선택합니다.
 # 비워 두면 root 하위 전체를 관리합니다.
 # [[repositories.projects]]
 # path = "/Users/yourname/STL/example-service"

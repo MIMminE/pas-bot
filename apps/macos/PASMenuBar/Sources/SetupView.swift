@@ -37,7 +37,7 @@ struct SetupView: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("PAS 설정 마법사")
+                Text("PAS 설정")
                     .font(.title2)
                     .bold()
 
@@ -435,16 +435,14 @@ private struct GuideBox: View {
     let lines: [String]
     let buttons: [GuideButton]
     let runner: PASRunner
+    @State private var isExpanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.subheadline)
-                .bold()
+        DisclosureGroup(isExpanded: $isExpanded) {
 
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(lines, id: \.self) { line in
-                    Text("· \(line)")
+                    Text("- \(line)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -459,6 +457,11 @@ private struct GuideBox: View {
                 }
                 Spacer()
             }
+            .padding(.top, 6)
+        } label: {
+            Text(title)
+                .font(.subheadline)
+                .bold()
         }
         .padding(10)
         .background(Color(nsColor: .controlBackgroundColor))

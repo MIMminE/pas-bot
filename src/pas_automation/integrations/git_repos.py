@@ -111,6 +111,18 @@ def ahead_behind(repo: Path) -> tuple[int | None, int | None]:
     return ahead, behind
 
 
+def fetch(repo: Path) -> str:
+    return git(repo, "fetch", "--prune")
+
+
+def pull_ff_only(repo: Path) -> str:
+    return git(repo, "pull", "--ff-only")
+
+
+def pull_rebase(repo: Path) -> str:
+    return git(repo, "pull", "--rebase", "--autostash")
+
+
 def current_branch(repo: Path) -> str:
     return git(repo, "branch", "--show-current") or "detached"
 

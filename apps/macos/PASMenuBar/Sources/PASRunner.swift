@@ -10,6 +10,7 @@ final class PASRunner: ObservableObject {
     @Published var lastOutput = ""
 
     private var setupWindow: NSWindow?
+    private var workWindow: NSWindow?
     private var outputWindow: NSWindow?
 
     init() {
@@ -93,7 +94,7 @@ final class PASRunner: ObservableObject {
             backing: .buffered,
             defer: false
         )
-        window.title = "PAS 초기 설정"
+        window.title = "PAS 설정"
         window.center()
         window.contentView = NSHostingView(rootView: SetupView(runner: self))
         window.isReleasedWhenClosed = false
@@ -102,8 +103,34 @@ final class PASRunner: ObservableObject {
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
+    func openWorkWindow() {
+        if let workWindow {
+            workWindow.makeKeyAndOrderFront(nil)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 820, height: 620),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "PAS 작업 콘솔"
+        window.center()
+        window.contentView = NSHostingView(rootView: WorkView(runner: self))
+        window.isReleasedWhenClosed = false
+        workWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
     func closeSetupWindow() {
         setupWindow?.close()
+    }
+
+    func closeWorkWindow() {
+        workWindow?.close()
     }
 
     func loadSettings() -> PASSettings {
@@ -180,6 +207,31 @@ final class PASRunner: ObservableObject {
             return []
         }
         return Self.parseLocalRepositories(result.output)
+    }
+
+    func loadManagedRepositories() async -> [LocalRepositoryOption] {
+        status = "관리 중인 Git repository 상태를 불러오는 중..."
+        let result = await Self.executeDetached(["repo", "list", "--format", "tsv"])
+        lastOutput = result.output
+        status = result.succeeded ? "관리 중인 Git repository 상태를 불러왔습니다" : "Git repository 상태 조회 실패"
+        if !result.succeeded {
+            openOutputWindow(title: "Git repository 상태 조회 오류", output: result.output.isEmpty ? result.summary : result.output)
+            return []
+        }
+        return Self.parseLocalRepositories(result.output)
+    }
+
+    func runRepositoryUpdate(path: String, mode: String) async -> String {
+        isRunning = true
+        status = "Git \(mode) 실행 중..."
+        let result = await Self.executeDetached(["repo", "update", "--repo", path, "--mode", mode])
+        lastOutput = result.output
+        status = result.succeeded ? "Git \(mode) 완료" : "Git \(mode) 실패"
+        isRunning = false
+        if !result.succeeded {
+            openOutputWindow(title: "Git 작업 오류", output: result.output.isEmpty ? result.summary : result.output)
+        }
+        return result.output.isEmpty ? result.summary : result.output
     }
 
     private nonisolated static func parseSlackChannels(_ output: String) -> [SlackChannel] {
@@ -876,5 +928,17 @@ struct LocalRepositoryOption: Identifiable, Hashable, Sendable {
             return "동기화됨"
         }
         return "upstream 없음"
+    }
+
+    var needsUpdate: Bool {
+        (behind ?? 0) > 0
+    }
+
+    var canFastForward: Bool {
+        (behind ?? 0) > 0 && (ahead ?? 0) == 0
+    }
+
+    var needsRebase: Bool {
+        (behind ?? 0) > 0 && (ahead ?? 0) > 0
     }
 }

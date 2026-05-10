@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 from pas_automation.app_state import default_config_path, default_env_path, init_app_data
 from pas_automation.config import load_config
@@ -16,7 +17,7 @@ from pas_automation.features.repo_status import summarize_repositories
 from pas_automation.features.scheduler import install_schedules, schedule_status, uninstall_schedules
 from pas_automation.features.settings_import import import_settings
 from pas_automation.features.slack_test import send_test_message
-from pas_automation.integrations.git_repos import ahead_behind, configured_repositories, discovered_repositories, snapshot_repo, status_porcelain
+from pas_automation.integrations.git_repos import ahead_behind, configured_repositories, discovered_repositories, fetch, pull_ff_only, pull_rebase, snapshot_repo, status_porcelain
 from pas_automation.integrations.slack import list_channels
 from pas_automation.runtime_env import load_env_file
 
@@ -70,6 +71,11 @@ def build_parser() -> argparse.ArgumentParser:
     repo_list = repo_sub.add_parser("list", help="설정된 root 하위 Git repository 목록 조회")
     repo_list.add_argument("--format", choices=["text", "tsv"], default="text", help="출력 형식")
     repo_list.add_argument("--all", action="store_true", help="관리 대상 선택값을 무시하고 root 하위 전체 조회")
+
+    repo_update = repo_sub.add_parser("update", help="관리 중인 repository fetch/pull/rebase 실행")
+    repo_update.add_argument("--repo", required=True, help="작업할 repository 경로")
+    repo_update.add_argument("--mode", choices=["fetch", "pull", "rebase"], default="pull", help="실행할 Git 작업")
+    repo_update.add_argument("--dry-run", action="store_true", help="실행할 명령만 확인")
 
     automation = subparsers.add_parser("automation", help="스케줄러가 호출하는 자동 실행")
     automation_sub = automation.add_subparsers(dest="command", required=True)
@@ -230,6 +236,30 @@ def main(argv: list[str] | None = None) -> int:
                 ahead, behind = ahead_behind(repo_path)
                 sync = "upstream 없음" if ahead is None or behind is None else f"ahead {ahead}, behind {behind}"
                 print(f"- {repo_path.name} [{snapshot_item.branch}] {sync} | {repo_path}")
+        return 0
+
+    if args.area == "repo" and args.command == "update":
+        repo_path = Path(args.repo).expanduser().resolve()
+        managed = {path.resolve() for path in configured_repositories(config)}
+        if repo_path not in managed:
+            raise RuntimeError(f"관리 대상 repository가 아닙니다: {repo_path}")
+
+        command = {
+            "fetch": "git fetch --prune",
+            "pull": "git pull --ff-only",
+            "rebase": "git pull --rebase --autostash",
+        }[args.mode]
+        if args.dry_run:
+            print(f"[dry-run] {repo_path}: {command}")
+            return 0
+
+        if args.mode == "fetch":
+            output = fetch(repo_path)
+        elif args.mode == "pull":
+            output = pull_ff_only(repo_path)
+        else:
+            output = pull_rebase(repo_path)
+        print(output or f"{repo_path.name}: {command} 완료")
         return 0
 
     if args.area == "automation" and args.command == "tick":

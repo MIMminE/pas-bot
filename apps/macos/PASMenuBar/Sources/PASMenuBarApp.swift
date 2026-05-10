@@ -80,7 +80,11 @@ struct PASMenuBarApp: App {
 
                 Divider()
 
-                Button("초기 설정 열기") {
+                Button("작업 콘솔 열기") {
+                    runner.openWorkWindow()
+                }
+
+                Button("설정 열기") {
                     runner.openSetupWindow()
                 }
 
