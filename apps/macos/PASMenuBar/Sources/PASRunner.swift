@@ -9,7 +9,6 @@ final class PASRunner: ObservableObject {
     @Published var status = "대기 중"
     @Published var lastOutput = ""
 
-    private let fileManager = FileManager.default
     private var setupWindow: NSWindow?
     private var outputWindow: NSWindow?
 
@@ -46,7 +45,7 @@ final class PASRunner: ObservableObject {
 
     func openSupportDirectory() {
         let directory = supportDirectory()
-        try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         NSWorkspace.shared.open(directory)
     }
 
@@ -217,6 +216,7 @@ final class PASRunner: ObservableObject {
     }
 
     private nonisolated func prepareSupportFiles() throws {
+        let fileManager = FileManager.default
         let directory = supportDirectory()
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: logsDirectory(), withIntermediateDirectories: true)
@@ -228,6 +228,7 @@ final class PASRunner: ObservableObject {
     }
 
     private nonisolated func copyExampleIfNeeded(resourcePath: String, to destination: URL) {
+        let fileManager = FileManager.default
         guard !fileManager.fileExists(atPath: destination.path) else { return }
         guard let source = Bundle.main.resourceURL?.appendingPathComponent(resourcePath) else { return }
         guard fileManager.fileExists(atPath: source.path) else { return }
@@ -242,7 +243,7 @@ final class PASRunner: ObservableObject {
     }
 
     private nonisolated func supportDirectory() -> URL {
-        let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         return base.appendingPathComponent("PAS", isDirectory: true)
     }
@@ -269,7 +270,7 @@ final class PASRunner: ObservableObject {
 
     private nonisolated func createStateIfNeeded() {
         let destination = stateURL()
-        guard !fileManager.fileExists(atPath: destination.path) else { return }
+        guard !FileManager.default.fileExists(atPath: destination.path) else { return }
         let payload = """
         {
           "version": 1,

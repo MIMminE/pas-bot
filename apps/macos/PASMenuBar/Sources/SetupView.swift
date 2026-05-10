@@ -228,6 +228,11 @@ struct SetupView: View {
         .padding(20)
         .background(Color(nsColor: .windowBackgroundColor))
     }
+
+    private func runSlackTest(_ destination: String) {
+        runner.saveSettings(settings)
+        runner.run(["slack", "test", "--destination", destination])
+    }
 }
 
 private struct SettingsTextField: View {
@@ -244,11 +249,6 @@ private struct SettingsTextField: View {
                     .textFieldStyle(.roundedBorder)
             }
         }
-    }
-
-    private func runSlackTest(_ destination: String) {
-        runner.saveSettings(settings)
-        runner.run(["slack", "test", "--destination", destination])
     }
 }
 
