@@ -2,23 +2,25 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import sys
 
 from pas_automation.app_state import default_config_path, default_env_path, init_app_data
 from pas_automation.config import load_config
 from pas_automation.features.ai_assistant import git_summary, incident_draft, jira_issue_summary, monthly_review, pr_description
 from pas_automation.features.assignees import list_assignees
 from pas_automation.features.automation import tick
-from pas_automation.features.dev_assistant import audit_jira_keys, branch_name, calendar_summary, commit_message, dashboard, evening_check, morning_briefing, pr_draft
+from pas_automation.features.dev_assistant import audit_jira_keys, branch_name, calendar_summary, commit_message, create_branch, dashboard, evening_check, morning_briefing, pr_draft
 from pas_automation.features.doctor import run_doctor
 from pas_automation.features.health import run_health
 from pas_automation.features.jira_daily import assign_issue, format_today_items
 from pas_automation.features.repo_report import report, snapshot
+from pas_automation.features.repo_morning_sync import morning_sync
 from pas_automation.features.repo_status import summarize_repositories
 from pas_automation.features.scheduler import install_schedules, schedule_status, uninstall_schedules
 from pas_automation.features.settings_import import import_settings
 from pas_automation.features.slack_test import send_test_message
-from pas_automation.integrations.git_repos import ahead_behind, configured_repositories, discovered_repositories, fetch, pull_ff_only, pull_rebase, snapshot_repo, status_porcelain
-from pas_automation.integrations.slack import list_channels
+from pas_automation.integrations.git_repos import ahead_behind, commits_between, configured_repositories, discovered_repositories, fetch, pull_ff_only, pull_rebase, push, require_clean_worktree, snapshot_repo, status_porcelain
+from pas_automation.integrations.slack import SlackClient, list_channels, section_block
 from pas_automation.runtime_env import load_env_file
 
 
@@ -72,15 +74,25 @@ def build_parser() -> argparse.ArgumentParser:
     repo_list.add_argument("--format", choices=["text", "tsv"], default="text", help="출력 형식")
     repo_list.add_argument("--all", action="store_true", help="관리 대상 선택값을 무시하고 root 하위 전체 조회")
 
-    repo_update = repo_sub.add_parser("update", help="관리 중인 repository fetch/pull/rebase 실행")
+    repo_update = repo_sub.add_parser("update", help="관리 중인 repository fetch/pull/rebase/push 실행")
     repo_update.add_argument("--repo", required=True, help="작업할 repository 경로")
-    repo_update.add_argument("--mode", choices=["fetch", "pull", "rebase"], default="pull", help="실행할 Git 작업")
+    repo_update.add_argument("--mode", choices=["fetch", "pull", "rebase", "push"], default="pull", help="실행할 Git 작업")
     repo_update.add_argument("--dry-run", action="store_true", help="실행할 명령만 확인")
+
+    repo_commits = repo_sub.add_parser("commits", help="repository의 오늘 내 커밋 조회")
+    repo_commits.add_argument("--repo", required=True, help="조회할 repository 경로")
+
+    repo_send_text = repo_sub.add_parser("send-report-text", help="수정한 보고서 텍스트를 Slack으로 전송")
+    repo_send_text.add_argument("--text-file", required=True, help="전송할 보고서 텍스트 파일")
+
+    repo_morning_sync = repo_sub.add_parser("morning-sync", help="출근 Git 정비: fetch, 안전한 최신화, 전체 상태 알림")
+    repo_morning_sync.add_argument("--send-slack", action="store_true", help="Slack으로 결과 전송")
+    repo_morning_sync.add_argument("--dry-run", action="store_true", help="fetch/pull 없이 현재 상태 기준으로 미리보기")
 
     automation = subparsers.add_parser("automation", help="스케줄러가 호출하는 자동 실행")
     automation_sub = automation.add_subparsers(dest="command", required=True)
     automation_tick = automation_sub.add_parser("tick", help="현재 시간 기준으로 실행할 자동화를 1회 판단")
-    automation_tick.add_argument("--task", choices=["morning_briefing", "evening_check", "jira_daily", "git_report", "git_status"], help="특정 자동화 작업만 확인")
+    automation_tick.add_argument("--task", choices=["morning_briefing", "evening_check", "jira_daily", "git_morning_sync", "git_report", "git_status"], help="특정 자동화 작업만 확인")
     automation_tick.add_argument("--dry-run", action="store_true", help="실행하지 않고 판단 결과만 출력")
 
     routine = subparsers.add_parser("routine", help="개발자 하루 루틴")
@@ -98,6 +110,11 @@ def build_parser() -> argparse.ArgumentParser:
     dev_branch.add_argument("issue_key", help="Jira 이슈 키")
     dev_branch.add_argument("summary", help="브랜치명에 넣을 작업 요약")
     dev_branch.add_argument("--prefix", default="feature", help="브랜치 prefix")
+    dev_create_branch = dev_sub.add_parser("create-branch", help="Jira 이슈 키 기반 로컬 브랜치 생성")
+    dev_create_branch.add_argument("--repo", required=True, help="브랜치를 만들 repository 경로")
+    dev_create_branch.add_argument("--issue-key", required=True, help="Jira 이슈 키")
+    dev_create_branch.add_argument("--summary", default="", help="브랜치명에 사용할 작업 요약")
+    dev_create_branch.add_argument("--prefix", default="feature", help="브랜치 prefix")
     dev_commit = dev_sub.add_parser("commit-message", help="커밋 메시지 초안 생성")
     dev_commit.add_argument("--repo", help="대상 repository 경로")
     dev_commit.add_argument("--issue-key", help="커밋 메시지에 넣을 Jira 이슈 키")
@@ -248,6 +265,7 @@ def main(argv: list[str] | None = None) -> int:
             "fetch": "git fetch --prune",
             "pull": "git pull --ff-only",
             "rebase": "git pull --rebase --autostash",
+            "push": "git push",
         }[args.mode]
         if args.dry_run:
             print(f"[dry-run] {repo_path}: {command}")
@@ -256,10 +274,39 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "fetch":
             output = fetch(repo_path)
         elif args.mode == "pull":
+            require_clean_worktree(repo_path, action="업데이트")
             output = pull_ff_only(repo_path)
-        else:
+        elif args.mode == "rebase":
+            require_clean_worktree(repo_path, action="Rebase")
             output = pull_rebase(repo_path)
+        else:
+            output = push(repo_path)
         print(output or f"{repo_path.name}: {command} 완료")
+        return 0
+
+    if args.area == "repo" and args.command == "commits":
+        repo_path = Path(args.repo).expanduser().resolve()
+        managed = {path.resolve() for path in configured_repositories(config)}
+        if repo_path not in managed:
+            raise RuntimeError(f"관리 대상 repository가 아닙니다: {repo_path}")
+        today = __import__("datetime").date.today().isoformat()
+        output = commits_between(
+            repo_path,
+            author=config.general.git_author,
+            since=f"{today} 00:00",
+            until=f"{today} {config.general.work_end_time}",
+        )
+        print(output or "오늘 내 커밋이 없습니다.")
+        return 0
+
+    if args.area == "repo" and args.command == "send-report-text":
+        text = Path(args.text_file).expanduser().read_text(encoding="utf-8")
+        SlackClient(config.slack, destination="git_report").send(text, blocks=[section_block(text)])
+        print("보고서를 Slack으로 전송했습니다.")
+        return 0
+
+    if args.area == "repo" and args.command == "morning-sync":
+        print(morning_sync(config, send_slack=args.send_slack, dry_run=args.dry_run))
         return 0
 
     if args.area == "automation" and args.command == "tick":
@@ -276,6 +323,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.area == "dev" and args.command == "branch-name":
         print(branch_name(args.issue_key, args.summary, prefix=args.prefix))
+        return 0
+
+    if args.area == "dev" and args.command == "create-branch":
+        print(create_branch(config, args.repo, args.issue_key, args.summary, prefix=args.prefix))
         return 0
 
     if args.area == "dev" and args.command == "commit-message":
@@ -350,4 +401,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except Exception as exc:
+        print(f"오류: {exc}", file=sys.stderr)
+        raise SystemExit(1)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from pas_automation.config import AppConfig
@@ -11,6 +12,8 @@ from pas_automation.integrations.git_repos import configured_repositories, git
 from pas_automation.integrations.jira import JiraClient
 from pas_automation.integrations.slack import (
     SlackClient,
+    actions_block,
+    button_element,
     context_block,
     divider_block,
     fields_block,
@@ -149,6 +152,9 @@ def _build_slack_blocks(
         branch_text = _format_branches_markdown(issue, branch_matches)
         if branch_text:
             blocks.append(context_block(branch_text))
+        branch_actions = _branch_action_block(config, issue, branch_matches)
+        if branch_actions:
+            blocks.append(branch_actions)
         blocks.append(divider_block())
 
     if len(issues) > 10:
@@ -253,6 +259,36 @@ def _format_branches_markdown(issue: dict[str, Any], branch_matches: dict[str, l
     if len(branches) > 5:
         lines.append(f"• 외 {len(branches) - 5}개")
     return "\n".join(lines)
+
+
+def _branch_action_block(
+    config: AppConfig,
+    issue: dict[str, Any],
+    branch_matches: dict[str, list[LocalBranchMatch]],
+) -> dict[str, Any] | None:
+    if branch_matches.get(issue["key"]):
+        return None
+    repos = configured_repositories(config)[:5]
+    if not repos:
+        return None
+    summary = str((issue.get("fields", {}) or {}).get("summary", ""))
+    buttons = []
+    for repo in repos:
+        query = urlencode(
+            {
+                "issue": issue["key"],
+                "summary": summary,
+                "repo": str(repo),
+            }
+        )
+        buttons.append(
+            button_element(
+                f"{repo.name} 브랜치 만들기",
+                f"pas://branch/create?{query}",
+                action_id=f"branch_create_{issue['key']}_{repo.name}"[:255],
+            )
+        )
+    return actions_block(buttons)
 
 
 def _local_branch_matches(config: AppConfig, issues: list[dict[str, Any]]) -> dict[str, list[LocalBranchMatch]]:

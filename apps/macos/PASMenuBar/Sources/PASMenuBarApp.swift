@@ -41,6 +41,11 @@ struct PASMenuBarApp: App {
                 }
                 .disabled(runner.isRunning)
 
+                Button("출근 Git 정비 전송") {
+                    runner.run(["repo", "morning-sync", "--send-slack"])
+                }
+                .disabled(runner.isRunning)
+
                 Button("Git 작업 보고 스냅샷 저장") {
                     runner.run(["repo", "snapshot", "--name", "morning"])
                 }

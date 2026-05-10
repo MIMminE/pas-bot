@@ -118,6 +118,14 @@ catch_up_if_missed = true
 weekdays_only = true
 holiday_dates = []
 
+[schedules.git_morning_sync]
+# 출근 Git 정비 자동 실행 설정입니다. 안전한 fast-forward만 자동 처리하고 전체 상태를 Slack으로 보냅니다.
+enabled = false
+time = "08:50"
+catch_up_if_missed = true
+weekdays_only = true
+holiday_dates = []
+
 [[repositories.roots]]
 # 로컬 Git repository를 찾을 루트 폴더입니다.
 path = "/Users/yourname/STL"

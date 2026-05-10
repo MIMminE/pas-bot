@@ -96,10 +96,29 @@ jobs:
         run: |
           set -euo pipefail
           files=$(find artifacts -name "*.zip" -type f | sort)
+          notes_file=".github/release-notes/${TAG_NAME}.md"
+          if [ ! -f "$notes_file" ]; then
+            notes_file="$(mktemp)"
+            cat > "$notes_file" <<EOF
+          ## PAS ${TAG_NAME}
+
+          태그 기반 자동 릴리즈입니다.
+
+          ## 포함 파일
+
+          - macOS 메뉴바 앱
+          - Windows 트레이 앱
+          - CLI 실행 패키지
+
+          ## 안내
+
+          설정 파일과 토큰은 릴리즈 파일에 포함되지 않습니다. 앱 최초 실행 후 설정 화면에서 로컬 설정을 입력해 주세요.
+          EOF
+          fi
           gh release create "$TAG_NAME" $files \
             --repo "$GITHUB_REPOSITORY" \
             --title "$TAG_NAME" \
-            --notes "PAS 자동화 릴리즈입니다. 실행 파일에는 필요한 런타임이 포함되어 있습니다. 비밀 설정은 포함되지 않으므로 각 기기에서 config.toml을 작성해 주세요."
+            --notes-file "$notes_file"
 
   build-macos-menubar:
     name: Build macOS Menu Bar App

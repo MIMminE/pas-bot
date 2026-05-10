@@ -14,6 +14,7 @@ TASK_LABELS = {
     "morning_briefing": "Morning Briefing",
     "evening_check": "Evening Check",
     "jira_daily": "Jira Daily",
+    "git_morning_sync": "Git Morning Sync",
     "git_report": "Git Report",
     "git_status": "Git Status",
 }

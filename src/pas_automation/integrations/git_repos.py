@@ -97,6 +97,25 @@ def status_porcelain(repo: Path) -> list[str]:
     return [line for line in output.splitlines() if line.strip()]
 
 
+def require_clean_worktree(repo: Path, *, action: str) -> None:
+    changes = status_porcelain(repo)
+    if not changes:
+        return
+    preview = "\n".join(f"- {line}" for line in changes[:12])
+    more = "" if len(changes) <= 12 else f"\n- 외 {len(changes) - 12}개"
+    raise RuntimeError(
+        "\n".join(
+            [
+                f"{action} 전에 처리되지 않은 변경 파일이 있습니다.",
+                "먼저 변경사항을 commit 또는 stash 한 뒤 다시 실행해 주세요.",
+                "",
+                "변경 파일:",
+                preview + more,
+            ]
+        )
+    )
+
+
 def ahead_behind(repo: Path) -> tuple[int | None, int | None]:
     try:
         upstream = git(repo, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
@@ -121,6 +140,10 @@ def pull_ff_only(repo: Path) -> str:
 
 def pull_rebase(repo: Path) -> str:
     return git(repo, "pull", "--rebase", "--autostash")
+
+
+def push(repo: Path) -> str:
+    return git(repo, "push")
 
 
 def current_branch(repo: Path) -> str:

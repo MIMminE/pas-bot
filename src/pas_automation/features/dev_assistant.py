@@ -8,7 +8,15 @@ from pas_automation.features.jira_daily import format_today_items
 from pas_automation.features.repo_report import report
 from pas_automation.features.repo_status import collect_repo_status, format_repo_status
 from pas_automation.integrations.calendar import format_calendar, upcoming_events
-from pas_automation.integrations.git_repos import changed_files, configured_repositories, current_branch, recent_commits, staged_files
+from pas_automation.integrations.git_repos import (
+    changed_files,
+    configured_repositories,
+    current_branch,
+    git,
+    recent_commits,
+    require_clean_worktree,
+    staged_files,
+)
 from pas_automation.integrations.slack import SlackClient, context_block, divider_block, header_block, section_block
 
 
@@ -62,6 +70,28 @@ def evening_check(config: AppConfig, *, send_slack: bool, dry_run: bool = False)
 
 def branch_name(issue_key: str, summary: str, *, prefix: str = "feature") -> str:
     return f"{prefix}/{issue_key.upper()}-{_slug(summary)}"
+
+
+def create_branch(config: AppConfig, repo_path: str, issue_key: str, summary: str, *, prefix: str = "feature") -> str:
+    _ensure_dev_tools(config)
+    repo = Path(repo_path).expanduser().resolve()
+    managed = {item.expanduser().resolve() for item in configured_repositories(config)}
+    if repo not in managed:
+        raise RuntimeError(f"관리 대상 repository가 아닙니다: {repo}")
+    if not (repo / ".git").is_dir():
+        raise RuntimeError(f"Git repository를 찾지 못했습니다: {repo}")
+
+    require_clean_worktree(repo, action="브랜치 생성")
+    name = branch_name(issue_key, summary, prefix=prefix)
+    existed = _local_branch_exists(repo, name)
+    if existed:
+        output = git(repo, "checkout", name)
+    else:
+        output = git(repo, "checkout", "-b", name)
+    action = "이동" if existed else "생성"
+    details = output.strip()
+    suffix = f"\n{details}" if details else ""
+    return f"{repo.name}: {name} 브랜치 {action} 완료{suffix}"
 
 
 def commit_message(config: AppConfig, repo_path: str | None, issue_key: str | None) -> str:
@@ -173,6 +203,14 @@ def _repo_path(config: AppConfig, repo_path: str | None) -> Path:
 def _issue_key_from_text(text: str) -> str | None:
     match = ISSUE_KEY_PATTERN.search(text.upper())
     return match.group(0) if match else None
+
+
+def _local_branch_exists(repo: Path, name: str) -> bool:
+    try:
+        git(repo, "show-ref", "--verify", "--quiet", f"refs/heads/{name}")
+    except RuntimeError:
+        return False
+    return True
 
 
 def _slug(value: str) -> str:

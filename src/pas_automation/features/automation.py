@@ -8,12 +8,13 @@ from pas_automation.app_state import read_state, write_state
 from pas_automation.config import AppConfig
 from pas_automation.features.dev_assistant import evening_check, morning_briefing
 from pas_automation.features.jira_daily import format_today_items
+from pas_automation.features.repo_morning_sync import morning_sync
 from pas_automation.features.repo_report import report
 from pas_automation.features.repo_status import summarize_repositories
 from pas_automation.integrations.slack import SlackClient, section_block
 
 
-TASKS = ("morning_briefing", "evening_check", "jira_daily", "git_report", "git_status")
+TASKS = ("morning_briefing", "evening_check", "jira_daily", "git_morning_sync", "git_report", "git_status")
 
 
 def tick(config: AppConfig, *, task_name: str | None = None, dry_run: bool = False) -> str:
@@ -85,6 +86,9 @@ def _run_task(config: AppConfig, task: str) -> None:
         return
     if task == "jira_daily":
         format_today_items(config, send_slack=True)
+        return
+    if task == "git_morning_sync":
+        morning_sync(config, send_slack=True, dry_run=False)
         return
     if task == "git_report":
         report(config, snapshot_name="morning", send_slack=True, dry_run=False)

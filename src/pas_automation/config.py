@@ -74,6 +74,7 @@ class FeatureConfig:
             "jira_assign": self.jira,
             "git_report": self.git,
             "git_status": self.git,
+            "git_morning_sync": self.git,
             "repo_snapshot": self.git,
             "morning_briefing": self.routines,
             "evening_check": self.routines,
@@ -251,6 +252,7 @@ def load_config(path: str | Path) -> AppConfig:
                 "jira_daily": "09:00",
                 "git_report": "18:30",
                 "git_status": "09:10",
+                "git_morning_sync": "08:50",
             }.items()
         },
         assignees_path=config_path.parent / "assignees.json",

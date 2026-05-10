@@ -4,7 +4,7 @@ import Foundation
 import SwiftUI
 
 @MainActor
-final class PASRunner: ObservableObject {
+final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
     @Published var isRunning = false
     @Published var status = "대기 중"
     @Published var lastOutput = ""
@@ -13,7 +13,14 @@ final class PASRunner: ObservableObject {
     private var workWindow: NSWindow?
     private var outputWindow: NSWindow?
 
-    init() {
+    override init() {
+        super.init()
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleGetURLEvent(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
         try? Self.prepareSupportFiles()
         DispatchQueue.main.async { [weak self] in
             self?.openSetupWindow()
@@ -51,6 +58,34 @@ final class PASRunner: ObservableObject {
     func openExternalURL(_ value: String) {
         guard let url = URL(string: value) else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    @objc private nonisolated func handleGetURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
+        guard let value = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+              let url = URL(string: value) else {
+            return
+        }
+        Task { @MainActor in
+            self.handleDeepLink(url)
+        }
+    }
+
+    func handleDeepLink(_ url: URL) {
+        guard url.scheme == "pas", url.host == "branch", url.path == "/create" else {
+            status = "지원하지 않는 PAS 링크입니다"
+            return
+        }
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let issue = Self.queryValue("issue", in: items)
+        let repo = Self.queryValue("repo", in: items)
+        let summary = Self.queryValue("summary", in: items)
+        guard !issue.isEmpty, !repo.isEmpty else {
+            status = "브랜치 생성 링크에 필요한 값이 없습니다"
+            return
+        }
+        Task {
+            await createBranch(issue: issue, repo: repo, summary: summary)
+        }
     }
 
     func copyLastOutput() {
@@ -98,12 +133,14 @@ final class PASRunner: ObservableObject {
         window.center()
         window.contentView = NSHostingView(rootView: SetupView(runner: self))
         window.isReleasedWhenClosed = false
+        window.delegate = self
         setupWindow = window
         window.makeKeyAndOrderFront(nil)
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
     func openWorkWindow() {
+        NSApplication.shared.setActivationPolicy(.regular)
         if let workWindow {
             workWindow.makeKeyAndOrderFront(nil)
             NSApplication.shared.activate(ignoringOtherApps: true)
@@ -120,6 +157,7 @@ final class PASRunner: ObservableObject {
         window.center()
         window.contentView = NSHostingView(rootView: WorkView(runner: self))
         window.isReleasedWhenClosed = false
+        window.delegate = self
         workWindow = window
         window.makeKeyAndOrderFront(nil)
         NSApplication.shared.activate(ignoringOtherApps: true)
@@ -131,6 +169,20 @@ final class PASRunner: ObservableObject {
 
     func closeWorkWindow() {
         workWindow?.close()
+    }
+
+    nonisolated func windowWillClose(_ notification: Notification) {
+        Task { @MainActor in
+            guard let window = notification.object as? NSWindow else { return }
+            if window === self.workWindow {
+                self.workWindow = nil
+            } else if window === self.setupWindow {
+                self.setupWindow = nil
+            } else if window === self.outputWindow {
+                self.outputWindow = nil
+            }
+            self.restoreMenuBarModeIfPossible()
+        }
     }
 
     func loadSettings() -> PASSettings {
@@ -234,6 +286,68 @@ final class PASRunner: ObservableObject {
         return result.output.isEmpty ? result.summary : result.output
     }
 
+    func createBranch(issue: String, repo: String, summary: String) async {
+        guard !isRunning else { return }
+        isRunning = true
+        status = "\(issue) 브랜치 생성 중..."
+        let result = await Self.executeDetached(["dev", "create-branch", "--repo", repo, "--issue-key", issue, "--summary", summary])
+        lastOutput = result.output
+        status = result.succeeded ? "\(issue) 브랜치 준비 완료" : "\(issue) 브랜치 생성 실패"
+        isRunning = false
+        openOutputWindow(
+            title: result.succeeded ? "브랜치 생성 결과" : "브랜치 생성 오류",
+            output: result.output.isEmpty ? result.summary : result.output
+        )
+        if result.succeeded {
+            openWorkWindow()
+        }
+    }
+
+    func loadTodayCommits(path: String) async -> String {
+        status = "오늘 커밋을 불러오는 중..."
+        let result = await Self.executeDetached(["repo", "commits", "--repo", path])
+        lastOutput = result.output
+        status = result.succeeded ? "오늘 커밋을 불러왔습니다" : "오늘 커밋 조회 실패"
+        if !result.succeeded {
+            openOutputWindow(title: "오늘 커밋 조회 오류", output: result.output.isEmpty ? result.summary : result.output)
+        }
+        return result.output.isEmpty ? result.summary : result.output
+    }
+
+    func previewDailyReport() async -> String {
+        status = "오늘 작업 보고서를 만드는 중..."
+        let result = await Self.executeDetached(["repo", "report", "--snapshot", "morning", "--dry-run"])
+        lastOutput = result.output
+        status = result.succeeded ? "오늘 작업 보고서를 만들었습니다" : "오늘 작업 보고서 생성 실패"
+        if !result.succeeded {
+            openOutputWindow(title: "오늘 작업 보고서 생성 오류", output: result.output.isEmpty ? result.summary : result.output)
+        }
+        return Self.stripDryRunPrefix(result.output.isEmpty ? result.summary : result.output)
+    }
+
+    func sendEditedReport(_ text: String) async -> String {
+        let url = Self.supportDirectory().appendingPathComponent("edited-report-\(UUID().uuidString).txt")
+        do {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            let message = "보고서 임시 파일 저장 실패: \(error.localizedDescription)"
+            status = message
+            return message
+        }
+
+        isRunning = true
+        status = "수정한 보고서를 Slack으로 전송하는 중..."
+        let result = await Self.executeDetached(["repo", "send-report-text", "--text-file", url.path])
+        try? FileManager.default.removeItem(at: url)
+        lastOutput = result.output
+        status = result.succeeded ? "수정한 보고서를 Slack으로 전송했습니다" : "수정한 보고서 전송 실패"
+        isRunning = false
+        if !result.succeeded {
+            openOutputWindow(title: "보고서 전송 오류", output: result.output.isEmpty ? result.summary : result.output)
+        }
+        return result.output.isEmpty ? result.summary : result.output
+    }
+
     private nonisolated static func parseSlackChannels(_ output: String) -> [SlackChannel] {
         output
             .split(separator: "\n")
@@ -261,6 +375,14 @@ final class PASRunner: ObservableObject {
                 )
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private nonisolated static func stripDryRunPrefix(_ value: String) -> String {
+        value.replacingOccurrences(of: "[dry-run]\n", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private nonisolated static func queryValue(_ name: String, in items: [URLQueryItem]) -> String {
+        items.first { $0.name == name }?.value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
     private nonisolated static func executeDetached(_ arguments: [String]) async -> (succeeded: Bool, output: String, summary: String) {
@@ -309,7 +431,13 @@ final class PASRunner: ObservableObject {
         return arguments.first == "status" || arguments.first == "settings"
     }
 
+    private func restoreMenuBarModeIfPossible() {
+        guard workWindow == nil, setupWindow == nil, outputWindow == nil else { return }
+        NSApplication.shared.setActivationPolicy(.accessory)
+    }
+
     private func openOutputWindow(title: String, output: String) {
+        NSApplication.shared.setActivationPolicy(.regular)
         if let outputWindow {
             outputWindow.title = title
             outputWindow.contentView = NSHostingView(rootView: OutputView(output: output))
@@ -328,6 +456,7 @@ final class PASRunner: ObservableObject {
         window.center()
         window.contentView = NSHostingView(rootView: OutputView(output: output))
         window.isReleasedWhenClosed = false
+        window.delegate = self
         outputWindow = window
         window.makeKeyAndOrderFront(nil)
         NSApplication.shared.activate(ignoringOtherApps: true)

@@ -85,6 +85,19 @@ def fields_block(fields: list[str]) -> dict[str, Any]:
     }
 
 
+def actions_block(elements: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"type": "actions", "elements": elements[:5]}
+
+
+def button_element(text: str, url: str, *, action_id: str) -> dict[str, Any]:
+    return {
+        "type": "button",
+        "text": {"type": "plain_text", "text": _clip(text, 75), "emoji": True},
+        "url": url,
+        "action_id": action_id,
+    }
+
+
 def context_block(text: str) -> dict[str, Any]:
     return {"type": "context", "elements": [{"type": "mrkdwn", "text": _clip(text, 3000)}]}
 
