@@ -265,10 +265,7 @@ Jira 테스트, 설정 진단, 미리보기, 가져오기에서 문제가 생기
 
 예상 산출물:
 
-- `pas-windows-x64.zip`
-- `pas-macos-arm64.zip`
 - `pas-macos-menubar-arm64.zip`
-- `pas-windows-tray-x64.zip`
 
 릴리즈 만들기:
 
