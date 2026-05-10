@@ -121,7 +121,15 @@ jobs:
         run: pyinstaller --clean --onefile --paths src --collect-data certifi --name pas src/pas_automation/cli.py
 
       - name: Build SwiftUI menu bar executable
-        run: swift build -c release --package-path apps/macos/PASMenuBar
+        shell: bash
+        run: |
+          set -o pipefail
+          swift build -c release --package-path apps/macos/PASMenuBar 2>&1 | tee swift-build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            python3 -c 'from pathlib import Path; lines = Path("swift-build.log").read_text(errors="replace").splitlines(); message = "\n".join(lines[-80:]); escaped = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"); print(f"::error title=Swift build failed::{escaped}")'
+          fi
+          exit "$status"
 
       - name: Assemble app bundle
         shell: bash
