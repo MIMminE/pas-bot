@@ -51,6 +51,16 @@ struct PASMenuBarApp: App {
                 }
                 .disabled(runner.isRunning)
 
+                Button("GitHub 브랜치 상태 전송") {
+                    runner.run(["repo", "remote-status", "--send-slack"])
+                }
+                .disabled(runner.isRunning)
+
+                Button("GitHub 브랜치 상태 미리보기") {
+                    runner.run(["repo", "remote-status", "--dry-run"])
+                }
+                .disabled(runner.isRunning)
+
                 Button("설정 진단 실행") {
                     runner.run(["status", "doctor"])
                 }

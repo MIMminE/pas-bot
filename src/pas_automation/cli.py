@@ -10,7 +10,7 @@ from pas_automation.features.automation import tick
 from pas_automation.features.dev_assistant import audit_jira_keys, branch_name, calendar_summary, commit_message, dashboard, evening_check, morning_briefing, pr_draft
 from pas_automation.features.doctor import run_doctor
 from pas_automation.features.health import run_health
-from pas_automation.features.github_remote_report import remote_work_report
+from pas_automation.features.github_remote_report import remote_branch_status, remote_work_report
 from pas_automation.features.jira_daily import assign_issue, format_today_items
 from pas_automation.features.repo_report import report, snapshot
 from pas_automation.features.repo_status import summarize_repositories
@@ -71,6 +71,10 @@ def build_parser() -> argparse.ArgumentParser:
     repo_remote.add_argument("--days", type=int, default=1, help="조회할 최근 일수")
     repo_remote.add_argument("--send-slack", action="store_true", help="Slack으로 실제 전송")
     repo_remote.add_argument("--dry-run", action="store_true", help="외부 전송 없이 미리보기")
+
+    repo_remote_status = repo_sub.add_parser("remote-status", help="GitHub 원격 브랜치 리베이스/PR 상태 점검")
+    repo_remote_status.add_argument("--send-slack", action="store_true", help="Slack으로 실제 전송")
+    repo_remote_status.add_argument("--dry-run", action="store_true", help="외부 전송 없이 미리보기")
 
     automation = subparsers.add_parser("automation", help="스케줄러가 호출하는 자동 실행")
     automation_sub = automation.add_subparsers(dest="command", required=True)
@@ -205,6 +209,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.area == "repo" and args.command == "remote-report":
         print(remote_work_report(config, days=args.days, send_slack=args.send_slack, dry_run=args.dry_run))
+        return 0
+
+    if args.area == "repo" and args.command == "remote-status":
+        print(remote_branch_status(config, send_slack=args.send_slack, dry_run=args.dry_run))
         return 0
 
     if args.area == "automation" and args.command == "tick":

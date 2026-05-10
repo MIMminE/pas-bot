@@ -48,6 +48,37 @@ class GitHubBranchActivity:
     url: str
 
 
+@dataclass(frozen=True)
+class GitHubBranchStatus:
+    repository: str
+    default_branch: str
+    branch: str
+    sha: str
+    message: str
+    author: str
+    author_login: str
+    date: str
+    url: str
+    ahead_by: int
+    behind_by: int
+    status: str
+    pull_request: GitHubPullRequest | None
+
+    @property
+    def needs_rebase(self) -> bool:
+        return self.behind_by > 0
+
+    @property
+    def recommendation(self) -> str:
+        if self.behind_by > 0 and self.ahead_by > 0:
+            return f"{self.default_branch} 기준 {self.behind_by}커밋 뒤처짐: rebase 후 push 권장"
+        if self.behind_by > 0:
+            return f"{self.default_branch} 최신 변경 반영 필요"
+        if self.ahead_by > 0:
+            return "내 작업만 앞서 있음: PR 생성/갱신 확인"
+        return "기본 브랜치와 동일"
+
+
 class GitHubClient:
     def __init__(self, config: GitHubConfig) -> None:
         self.config = config
@@ -122,8 +153,8 @@ class GitHubClient:
                 if author and author_login and author_login != author:
                     continue
                 commit = payload.get("commit", {}) or {}
-                author = commit.get("author", {}) or {}
-                date = str(author.get("date", ""))
+                commit_author = commit.get("author", {}) or {}
+                date = str(commit_author.get("date", ""))
                 if date < since_iso:
                     continue
                 sha = str(payload.get("sha", ""))
@@ -135,12 +166,72 @@ class GitHubClient:
                         branch=name,
                         sha=sha[:7],
                         message=message,
-                        author=str(author.get("name", "")),
+                        author=str(commit_author.get("name", "")),
                         date=date,
                         url=f"https://github.com/{repo.owner}/{repo.name}/tree/{quote(name, safe='')}",
                     )
                 )
         return sorted(items, key=lambda item: item.date, reverse=True)
+
+    def branch_statuses(self, *, author: str = "", max_per_repo: int = 50) -> list[GitHubBranchStatus]:
+        items: list[GitHubBranchStatus] = []
+        prs = self.open_pull_requests(max_per_repo=max_per_repo)
+        pr_by_branch = {(pr.repository, pr.head_branch): pr for pr in prs}
+        for repo in self.config.repositories:
+            repo_name = f"{repo.owner}/{repo.name}"
+            info = self._repository(repo)
+            default_branch = str(info.get("default_branch", "main"))
+            for branch in self._branches(repo)[:max_per_repo]:
+                name = str(branch.get("name", ""))
+                if not name or name == default_branch:
+                    continue
+                commit_url = str((branch.get("commit", {}) or {}).get("url", ""))
+                if not commit_url:
+                    continue
+                commit_payload = json_request("GET", commit_url, headers=self.headers, timeout=30)
+                if not isinstance(commit_payload, dict):
+                    continue
+                author_login = str((commit_payload.get("author", {}) or {}).get("login", ""))
+                pr = pr_by_branch.get((repo_name, name))
+                owned_by_author = author_login == author or (pr is not None and pr.author == author)
+                if author and not owned_by_author:
+                    continue
+
+                comparison = self._compare(repo, default_branch, name)
+                commit = commit_payload.get("commit", {}) or {}
+                commit_author = commit.get("author", {}) or {}
+                sha = str(commit_payload.get("sha", ""))
+                message = str(commit.get("message", "")).splitlines()[0]
+                items.append(
+                    GitHubBranchStatus(
+                        repository=repo_name,
+                        default_branch=default_branch,
+                        branch=name,
+                        sha=sha[:7],
+                        message=message,
+                        author=str(commit_author.get("name", "")),
+                        author_login=author_login,
+                        date=str(commit_author.get("date", "")),
+                        url=f"https://github.com/{repo.owner}/{repo.name}/tree/{quote(name, safe='')}",
+                        ahead_by=int(comparison.get("ahead_by", 0)),
+                        behind_by=int(comparison.get("behind_by", 0)),
+                        status=str(comparison.get("status", "")),
+                        pull_request=pr,
+                    )
+                )
+        return sorted(items, key=lambda item: (item.needs_rebase, item.date), reverse=True)
+
+    def _repository(self, repo: GitHubRepository) -> dict:
+        url = f"https://api.github.com/repos/{repo.owner}/{repo.name}"
+        payload = json_request("GET", url, headers=self.headers, timeout=30)
+        return payload if isinstance(payload, dict) else {}
+
+    def _compare(self, repo: GitHubRepository, base: str, head: str) -> dict:
+        base_ref = quote(base, safe="")
+        head_ref = quote(head, safe="")
+        url = f"https://api.github.com/repos/{repo.owner}/{repo.name}/compare/{base_ref}...{head_ref}"
+        payload = json_request("GET", url, headers=self.headers, timeout=30)
+        return payload if isinstance(payload, dict) else {}
 
     def _branches(self, repo: GitHubRepository) -> list[dict]:
         url = f"https://api.github.com/repos/{repo.owner}/{repo.name}/branches?per_page=100"
