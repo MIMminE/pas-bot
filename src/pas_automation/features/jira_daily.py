@@ -317,8 +317,6 @@ def _format_issue_repo_link_markdown(issue: dict[str, Any], repo_links: dict[str
 
 
 def _local_branch_matches(config: AppConfig, issues: list[dict[str, Any]]) -> dict[str, list[LocalBranchMatch]]:
-    if not config.repo_roots:
-        return {}
     repos = configured_repositories(config)
     if not repos:
         return {}

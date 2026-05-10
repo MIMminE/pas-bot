@@ -12,6 +12,7 @@ struct WorkView: View {
     @State private var reportDraft = ""
     @State private var reportNotes = ""
     @State private var filter = "all"
+    @State private var selectedTab = "repositories"
     @State private var pendingAction: RepoAction?
     @State private var showDirtyWarning = false
     @State private var notice: WorkNotice?
@@ -71,17 +72,8 @@ struct WorkView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         metricStrip
-                        quickActions
-                        repositorySection
-
-                        HStack(alignment: .top, spacing: 16) {
-                            reportSection
-                                .frame(maxWidth: .infinity)
-                            aiSection
-                                .frame(width: 260)
-                        }
-
-                        resultSection
+                        dashboardTabs
+                        selectedDashboardContent
                     }
                     .padding(20)
                 }
@@ -118,7 +110,7 @@ struct WorkView: View {
                 Text("PAS 작업 대시보드")
                     .font(.system(size: 25, weight: .bold))
 
-                Text("관리 repo 상태, 출근 정비, 보고서 작성, AI 초안을 한 화면에서 처리합니다.")
+                Text("관리 저장소 정비, 보고서 작성, 보조 도구를 흐름별로 나눠 처리합니다.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -142,83 +134,121 @@ struct WorkView: View {
 
     private var metricStrip: some View {
         HStack(spacing: 12) {
-            MetricTile(title: "관리 repo", value: "\(repositories.count)", systemImage: "folder.badge.gearshape", tint: .blue)
-            MetricTile(title: "업데이트 필요", value: "\(needsUpdateCount)", systemImage: "arrow.down.circle.fill", tint: needsUpdateCount > 0 ? .orange : .green)
+            MetricTile(title: "관리 저장소", value: "\(repositories.count)", systemImage: "folder.badge.gearshape", tint: .blue)
+            MetricTile(title: "정비 필요", value: "\(needsUpdateCount)", systemImage: "arrow.down.circle.fill", tint: needsUpdateCount > 0 ? .orange : .green)
             MetricTile(title: "변경 있음", value: "\(dirtyCount)", systemImage: "exclamationmark.triangle.fill", tint: dirtyCount > 0 ? .orange : .green)
-            MetricTile(title: "push 필요", value: "\(pushCount)", systemImage: "arrow.up.circle.fill", tint: pushCount > 0 ? .purple : .green)
+            MetricTile(title: "올릴 커밋", value: "\(pushCount)", systemImage: "arrow.up.circle.fill", tint: pushCount > 0 ? .purple : .green)
         }
     }
 
-    private var quickActions: some View {
-        DashboardPanel(title: "빠른 실행", systemImage: "wand.and.stars") {
+    private var dashboardTabs: some View {
+        Picker("작업 영역", selection: $selectedTab) {
+            Label("저장소", systemImage: "folder.badge.gearshape").tag("repositories")
+            Label("보고서", systemImage: "doc.text").tag("report")
+            Label("도구/AI", systemImage: "wand.and.stars").tag("tools")
+            Label("결과", systemImage: "terminal").tag("result")
+        }
+        .pickerStyle(.segmented)
+    }
+
+    @ViewBuilder
+    private var selectedDashboardContent: some View {
+        switch selectedTab {
+        case "report":
+            reportSection
+        case "tools":
+            VStack(alignment: .leading, spacing: 16) {
+                toolActions
+                aiSection
+            }
+        case "result":
+            resultSection
+        default:
+            VStack(alignment: .leading, spacing: 16) {
+                repositoryActions
+                repositorySection
+            }
+        }
+    }
+
+    private var repositoryActions: some View {
+        DashboardPanel(title: "저장소 정비", systemImage: "arrow.triangle.2.circlepath") {
             HStack(spacing: 10) {
-                DashboardButton(title: isLoading ? "불러오는 중" : "새로고침", systemImage: "arrow.clockwise") {
+                DashboardButton(title: isLoading ? "확인 중" : "상태 동기화", systemImage: "arrow.clockwise") {
                     Task { await reload(notify: true, fetchRemote: true) }
                 }
                 .disabled(isLoading || runner.isRunning)
 
-                DashboardButton(title: "Git 상태 전송", systemImage: "paperplane") {
+                DashboardButton(title: "상태 공유", systemImage: "paperplane") {
                     Task {
                         await runDashboardCommand(
                             ["repo", "status", "--send-slack"],
-                            title: "Git 상태 전송",
-                            running: "Git 상태를 Slack으로 전송하는 중...",
-                            success: "Git 상태를 Slack으로 전송했습니다",
-                            failure: "Git 상태 전송 실패"
+                            title: "저장소 상태 공유",
+                            running: "저장소 상태를 Slack으로 공유하는 중...",
+                            success: "저장소 상태를 Slack으로 공유했습니다",
+                            failure: "저장소 상태 공유 실패"
                         )
                     }
                 }
                 .disabled(runner.isRunning)
 
-                DashboardButton(title: "출근 Git 정비", systemImage: "sparkles") {
+                DashboardButton(title: "출근 정비 실행", systemImage: "sparkles") {
                     Task {
                         await runDashboardCommand(
                             ["repo", "morning-sync", "--send-slack"],
-                            title: "출근 Git 정비",
-                            running: "출근 Git 정비를 실행하는 중...",
-                            success: "출근 Git 정비 완료",
-                            failure: "출근 Git 정비 실패"
+                            title: "출근 정비 실행",
+                            running: "출근 저장소 정비를 실행하는 중...",
+                            success: "출근 저장소 정비 완료",
+                            failure: "출근 저장소 정비 실패"
                         )
                     }
                 }
                 .disabled(runner.isRunning)
 
-                DashboardButton(title: "퇴근 체크", systemImage: "checkmark.seal") {
+                Spacer()
+            }
+        }
+    }
+
+    private var toolActions: some View {
+        DashboardPanel(title: "루틴 도구", systemImage: "checklist.checked") {
+            HStack(spacing: 10) {
+                DashboardButton(title: "퇴근 전 점검", systemImage: "checkmark.seal") {
                     Task {
                         await runDashboardCommand(
                             ["routine", "evening", "--dry-run"],
-                            title: "퇴근 체크",
-                            running: "퇴근 체크를 만드는 중...",
-                            success: "퇴근 체크 미리보기 완료",
-                            failure: "퇴근 체크 실패"
+                            title: "퇴근 전 점검",
+                            running: "퇴근 전 점검을 만드는 중...",
+                            success: "퇴근 전 점검 미리보기 완료",
+                            failure: "퇴근 전 점검 실패"
                         )
                     }
                 }
                 .disabled(runner.isRunning)
 
-                DashboardButton(title: "Jira 누락 검사", systemImage: "number.square") {
+                DashboardButton(title: "Jira 키 점검", systemImage: "number.square") {
                     Task {
                         await runDashboardCommand(
                             ["dev", "audit-jira-keys"],
-                            title: "Jira 누락 검사",
+                            title: "Jira 키 점검",
                             running: "Jira 키 누락을 검사하는 중...",
-                            success: "Jira 누락 검사 완료",
-                            failure: "Jira 누락 검사 실패"
+                            success: "Jira 키 점검 완료",
+                            failure: "Jira 키 점검 실패"
                         )
                     }
                 }
                 .disabled(runner.isRunning)
 
-                DashboardButton(title: "일감-레포 연결", systemImage: "link") {
+                DashboardButton(title: "연결 목록", systemImage: "link") {
                     Task {
                         let output = await runner.loadIssueRepositoryLinks()
                         lastMessage = output
-                        showNotice(title: "일감-레포 연결", message: output, succeeded: !runner.status.contains("실패"))
+                        showNotice(title: "일감-저장소 연결", message: output, succeeded: !runner.status.contains("실패"))
                     }
                 }
                 .disabled(runner.isRunning)
 
-                DashboardButton(title: "오늘 개발 흐름", systemImage: "point.topleft.down.curvedto.point.bottomright.up") {
+                DashboardButton(title: "오늘 흐름", systemImage: "point.topleft.down.curvedto.point.bottomright.up") {
                     Task { await showTodayActivity() }
                 }
                 .disabled(runner.isRunning)
@@ -229,14 +259,14 @@ struct WorkView: View {
     }
 
     private var repositorySection: some View {
-        DashboardPanel(title: "로컬 Git repository", systemImage: "point.3.connected.trianglepath.dotted") {
+        DashboardPanel(title: "관리 저장소", systemImage: "point.3.connected.trianglepath.dotted") {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Picker("필터", selection: $filter) {
                         Text("전체").tag("all")
-                        Text("rebase/pull 필요").tag("needsUpdate")
+                        Text("정비 필요").tag("needsUpdate")
                         Text("변경 있음").tag("dirty")
-                        Text("push 필요").tag("push")
+                        Text("올릴 커밋").tag("push")
                     }
                     .pickerStyle(.segmented)
                     .frame(maxWidth: 520)
@@ -259,13 +289,13 @@ struct WorkView: View {
                 if repositories.isEmpty {
                     EmptyDashboardState(
                         systemImage: "folder.badge.questionmark",
-                        title: "관리 대상 repository가 없습니다",
-                        message: "설정에서 로컬 root를 지정하고 관리할 프로젝트를 선택해 주세요."
+                        title: "관리 대상 저장소가 없습니다",
+                        message: "설정에서 GitHub 후보를 불러온 뒤 관리할 저장소를 가져와 주세요."
                     )
                 } else if filteredRepositories.isEmpty {
                     EmptyDashboardState(
                         systemImage: "line.3.horizontal.decrease.circle",
-                        title: "현재 필터에 해당하는 repo가 없습니다",
+                        title: "현재 필터에 해당하는 저장소가 없습니다",
                         message: "다른 필터를 선택하거나 상태를 새로고침해 주세요."
                     )
                 } else {
@@ -305,7 +335,7 @@ struct WorkView: View {
         DashboardPanel(title: "오늘 작업 보고서", systemImage: "doc.text") {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    DashboardButton(title: "미리보기 생성", systemImage: "doc.badge.gearshape") {
+                    DashboardButton(title: "초안 만들기", systemImage: "doc.badge.gearshape") {
                         Task {
                             reportDraft = await runner.previewDailyReport(notes: reportNotes)
                             lastMessage = reportDraft
@@ -314,15 +344,15 @@ struct WorkView: View {
                     }
                     .disabled(runner.isRunning)
 
-                    DashboardButton(title: "작성 규칙 편집", systemImage: "doc.plaintext") {
+                    DashboardButton(title: "보고 규칙", systemImage: "doc.plaintext") {
                         runner.openReportAgentEditor()
                     }
                     .disabled(runner.isRunning)
 
-                    DashboardButton(title: "Slack 전송", systemImage: "paperplane.fill") {
+                    DashboardButton(title: "보고서 공유", systemImage: "paperplane.fill") {
                         Task {
                             lastMessage = await runner.sendEditedReport(reportDraft)
-                            showNotice(title: "보고서 Slack 전송", message: lastMessage, succeeded: !runner.status.contains("실패"))
+                            showNotice(title: "보고서 공유", message: lastMessage, succeeded: !runner.status.contains("실패"))
                         }
                     }
                     .disabled(runner.isRunning || reportDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -363,35 +393,35 @@ struct WorkView: View {
     }
 
     private var aiSection: some View {
-        DashboardPanel(title: "AI 초안", systemImage: "brain.head.profile") {
-            VStack(spacing: 10) {
-                DashboardButton(title: "오늘 일 요약", systemImage: "text.badge.checkmark") {
+        DashboardPanel(title: "AI 작성 보조", systemImage: "brain.head.profile") {
+            HStack(spacing: 10) {
+                DashboardButton(title: "업무 요약", systemImage: "text.badge.checkmark") {
                     Task {
                         await runDashboardCommand(
                             ["ai", "git-summary", "--tone", "brief"],
-                            title: "오늘 일 요약",
-                            running: "오늘 일 요약을 만드는 중...",
-                            success: "오늘 일 요약 완료",
-                            failure: "오늘 일 요약 실패"
+                            title: "업무 요약",
+                            running: "업무 요약을 만드는 중...",
+                            success: "업무 요약 완료",
+                            failure: "업무 요약 실패"
                         )
                     }
                 }
                 .disabled(runner.isRunning)
 
-                DashboardButton(title: "관리자용 보고", systemImage: "person.text.rectangle") {
+                DashboardButton(title: "보고용 요약", systemImage: "person.text.rectangle") {
                     Task {
                         await runDashboardCommand(
                             ["ai", "git-summary", "--tone", "manager"],
-                            title: "관리자용 보고",
-                            running: "관리자용 보고를 만드는 중...",
-                            success: "관리자용 보고 완료",
-                            failure: "관리자용 보고 실패"
+                            title: "보고용 요약",
+                            running: "보고용 요약을 만드는 중...",
+                            success: "보고용 요약 완료",
+                            failure: "보고용 요약 실패"
                         )
                     }
                 }
                 .disabled(runner.isRunning)
 
-                DashboardButton(title: "PR 초안", systemImage: "arrow.triangle.pull") {
+                DashboardButton(title: "PR 작성안", systemImage: "arrow.triangle.pull") {
                     var args = ["ai", "pr-draft", "--tone", "brief"]
                     if !selectedPath.isEmpty {
                         args.append(contentsOf: ["--repo", selectedPath])
@@ -399,23 +429,23 @@ struct WorkView: View {
                     Task {
                         await runDashboardCommand(
                             args,
-                            title: "PR 초안",
-                            running: "PR 초안을 만드는 중...",
-                            success: "PR 초안 생성 완료",
-                            failure: "PR 초안 생성 실패"
+                            title: "PR 작성안",
+                            running: "PR 작성안을 만드는 중...",
+                            success: "PR 작성안 생성 완료",
+                            failure: "PR 작성안 생성 실패"
                         )
                     }
                 }
                 .disabled(runner.isRunning)
 
-                DashboardButton(title: "장애 원인 초안", systemImage: "stethoscope") {
+                DashboardButton(title: "장애 정리안", systemImage: "stethoscope") {
                     Task {
                         await runDashboardCommand(
                             ["ai", "incident-draft", "--tone", "detailed"],
-                            title: "장애 원인 초안",
-                            running: "장애 원인 초안을 만드는 중...",
-                            success: "장애 원인 초안 생성 완료",
-                            failure: "장애 원인 초안 생성 실패"
+                            title: "장애 정리안",
+                            running: "장애 정리안을 만드는 중...",
+                            success: "장애 정리안 생성 완료",
+                            failure: "장애 정리안 생성 실패"
                         )
                     }
                 }
@@ -452,7 +482,7 @@ struct WorkView: View {
         }
         isLoading = false
         if notify {
-            showNotice(title: "상태 새로고침", message: "관리 중인 repository \(repositories.count)개의 상태를 다시 불러왔습니다.", succeeded: true)
+            showNotice(title: "상태 새로고침", message: "관리 중인 저장소 \(repositories.count)개의 상태를 다시 불러왔습니다.", succeeded: true)
         }
     }
 
@@ -477,7 +507,7 @@ struct WorkView: View {
 
     private func showTodayActivity() async {
         lastMessage = await runner.loadTodayActivity()
-        showNotice(title: "오늘 개발 흐름", message: lastMessage, succeeded: !runner.status.contains("실패"))
+        showNotice(title: "오늘 흐름", message: lastMessage, succeeded: !runner.status.contains("실패"))
     }
 
     private func run(_ repo: LocalRepositoryOption, mode: String, skipWarning: Bool = false) async {
@@ -507,360 +537,4 @@ struct WorkView: View {
     private func showNotice(title: String, message: String, succeeded: Bool) {
         notice = WorkNotice(title: title, message: message, succeeded: succeeded)
     }
-}
-
-private struct StatusPill: View {
-    let text: String
-    let isRunning: Bool
-
-    var body: some View {
-        HStack(spacing: 7) {
-            if isRunning {
-                ProgressView()
-                    .controlSize(.small)
-            } else {
-                Circle()
-                    .fill(Color.green)
-                    .frame(width: 7, height: 7)
-            }
-            Text(text)
-                .font(.caption)
-                .lineLimit(1)
-        }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 7)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.9))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-    }
-}
-
-private struct MetricTile: View {
-    let title: String
-    let value: String
-    let systemImage: String
-    let tint: Color
-
-    var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(tint.opacity(0.16))
-                Image(systemName: systemImage)
-                    .font(.system(size: 21, weight: .semibold))
-                    .foregroundStyle(tint)
-            }
-            .frame(width: 44, height: 44)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(value)
-                    .font(.system(size: 24, weight: .bold))
-                    .monospacedDigit()
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.55))
-        )
-    }
-}
-
-private struct DashboardPanel<Content: View>: View {
-    let title: String
-    let systemImage: String
-    let content: Content
-
-    init(title: String, systemImage: String, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.systemImage = systemImage
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 13) {
-            HStack(spacing: 8) {
-                Image(systemName: systemImage)
-                    .foregroundStyle(Color.accentColor)
-                Text(title)
-                    .font(.headline)
-                Spacer()
-            }
-
-            content
-        }
-        .padding(14)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.55))
-        )
-    }
-}
-
-private struct DashboardButton: View {
-    let title: String
-    let systemImage: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 7) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 13, weight: .semibold))
-                Text(title)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.regular)
-    }
-}
-
-private struct RepositoryDashboardRow: View {
-    let repo: LocalRepositoryOption
-    let isSelected: Bool
-    let isRunning: Bool
-    let onSelect: () -> Void
-    let onCommits: () -> Void
-    let onFetch: () -> Void
-    let onPull: () -> Void
-    let onRebase: () -> Void
-    let onPush: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            HStack(alignment: .top, spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(statusColor.opacity(0.16))
-                    Image(systemName: statusImage)
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(statusColor)
-                }
-                .frame(width: 42, height: 42)
-
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: 8) {
-                        Text(repo.name)
-                            .font(.headline)
-                        Text(repo.branch)
-                            .font(.caption)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(Color(nsColor: .controlBackgroundColor).opacity(0.9))
-                            .clipShape(RoundedRectangle(cornerRadius: 7))
-                    }
-
-                    Text(repo.path)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-
-                    HStack(spacing: 8) {
-                        RepoStatusBadge(text: repo.syncLabel, color: statusColor)
-                        if repo.dirtyCount > 0 {
-                            RepoStatusBadge(text: "변경 \(repo.dirtyCount)", color: .orange)
-                        }
-                    }
-                }
-
-                Spacer()
-
-                HStack(spacing: 6) {
-                    RepoIconButton(title: "커밋", systemImage: "list.bullet.rectangle", action: onCommits)
-                        .disabled(isRunning)
-                    RepoIconButton(title: "Fetch", systemImage: "arrow.triangle.2.circlepath", action: onFetch)
-                        .disabled(isRunning)
-                    RepoIconButton(title: "Pull", systemImage: "arrow.down", action: onPull)
-                        .disabled(isRunning || !repo.canFastForward || repo.dirtyCount > 0)
-                    RepoIconButton(title: "Rebase", systemImage: "arrow.triangle.branch", action: onRebase)
-                        .disabled(isRunning || !repo.needsUpdate || repo.dirtyCount > 0)
-                    RepoIconButton(title: "Push", systemImage: "arrow.up", action: onPush)
-                        .disabled(isRunning || (repo.ahead ?? 0) == 0)
-                }
-            }
-        }
-        .padding(12)
-        .background(isSelected ? Color.accentColor.opacity(0.13) : Color(nsColor: .textBackgroundColor).opacity(0.78))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isSelected ? Color.accentColor.opacity(0.75) : Color(nsColor: .separatorColor).opacity(0.45))
-        )
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
-    }
-
-    private var statusColor: Color {
-        if repo.dirtyCount > 0 {
-            return .orange
-        }
-        if repo.needsRebase {
-            return .red
-        }
-        if repo.needsUpdate {
-            return .orange
-        }
-        if (repo.ahead ?? 0) > 0 {
-            return .purple
-        }
-        return .green
-    }
-
-    private var statusImage: String {
-        if repo.dirtyCount > 0 {
-            return "exclamationmark.triangle.fill"
-        }
-        if repo.needsRebase {
-            return "arrow.triangle.merge"
-        }
-        if repo.needsUpdate {
-            return "arrow.down.circle.fill"
-        }
-        if (repo.ahead ?? 0) > 0 {
-            return "arrow.up.circle.fill"
-        }
-        return "checkmark.circle.fill"
-    }
-}
-
-private struct RepoIconButton: View {
-    let title: String
-    let systemImage: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 14, weight: .semibold))
-                Text(title)
-                    .font(.caption2)
-            }
-            .frame(width: 54, height: 42)
-        }
-        .buttonStyle(.bordered)
-        .help(title)
-    }
-}
-
-private struct RepoStatusBadge: View {
-    let text: String
-    let color: Color
-
-    var body: some View {
-        Text(text)
-            .font(.caption)
-            .lineLimit(1)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .foregroundStyle(color)
-            .background(color.opacity(0.12))
-            .clipShape(RoundedRectangle(cornerRadius: 7))
-    }
-}
-
-private struct EmptyDashboardState: View {
-    let systemImage: String
-    let title: String
-    let message: String
-
-    var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: systemImage)
-                .font(.system(size: 28, weight: .semibold))
-                .foregroundStyle(.secondary)
-            Text(title)
-                .font(.headline)
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 26)
-        .background(Color(nsColor: .textBackgroundColor).opacity(0.66))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-    }
-}
-
-private struct WorkNotice: Identifiable {
-    let id = UUID()
-    let title: String
-    let message: String
-    let succeeded: Bool
-}
-
-private struct WorkNoticeView: View {
-    @Environment(\.dismiss) private var dismiss
-    let notice: WorkNotice
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(noticeColor.opacity(0.15))
-                    Image(systemName: notice.succeeded ? "checkmark.circle.fill" : "xmark.octagon.fill")
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundStyle(noticeColor)
-                }
-                .frame(width: 52, height: 52)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(notice.title)
-                        .font(.title3)
-                        .bold()
-                    Text(notice.succeeded ? "작업이 완료되었습니다." : "작업을 완료하지 못했습니다.")
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-            }
-
-            ScrollView {
-                Text(notice.message.isEmpty ? "출력 없음" : notice.message)
-                    .font(.system(.body, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-            }
-            .frame(minHeight: 150, maxHeight: 320)
-            .background(Color(nsColor: .textBackgroundColor).opacity(0.9))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color(nsColor: .separatorColor).opacity(0.7))
-            )
-
-            HStack {
-                Spacer()
-                Button("닫기") {
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(20)
-        .frame(width: 620)
-    }
-
-    private var noticeColor: Color {
-        notice.succeeded ? .green : .red
-    }
-}
-
-private struct RepoAction: Identifiable {
-    let id = UUID()
-    let repo: LocalRepositoryOption
-    let mode: String
 }

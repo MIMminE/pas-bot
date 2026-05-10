@@ -14,6 +14,11 @@ struct SetupView: View {
     @State private var isLoadingLocalRepositories = false
     @State private var isLoadingRemoteRepositories = false
     @State private var isCloningRemoteRepositories = false
+    @State private var isSlackExpanded = true
+    @State private var isJiraExpanded = true
+    @State private var isDeveloperExpanded = true
+    @State private var isAutomationExpanded = false
+    @State private var isTestExpanded = false
 
     init(runner: PASRunner) {
         self.runner = runner
@@ -70,7 +75,12 @@ struct SetupView: View {
     }
 
     private var slackSection: some View {
-        GroupBox("Slack 목적지") {
+        SettingsSection(
+            title: "Slack 채널 설정",
+            summary: "기능별 알림을 보낼 Slack 채널을 연결합니다.",
+            systemImage: "number",
+            isExpanded: $isSlackExpanded
+        ) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Slack 앱 Bot Token으로 채널 목록을 불러오고, 기능별 전송 채널을 지정합니다.")
                     .font(.caption)
@@ -142,7 +152,12 @@ struct SetupView: View {
     }
 
     private var jiraSection: some View {
-        GroupBox("Jira") {
+        SettingsSection(
+            title: "Jira 연결",
+            summary: "내게 할당된 일감과 프로젝트 기본값을 읽기 위한 정보를 입력합니다.",
+            systemImage: "checklist",
+            isExpanded: $isJiraExpanded
+        ) {
             VStack(alignment: .leading, spacing: 10) {
                 SettingsTextField(title: "기본 URL", placeholder: "https://start-today.atlassian.net", text: $settings.jiraBaseURL)
                 SettingsTextField(title: "이메일", placeholder: "you@example.com", text: $settings.jiraEmail)
@@ -168,80 +183,57 @@ struct SetupView: View {
     }
 
     private var developerSection: some View {
-        GroupBox("개발자 비서 확장") {
+        SettingsSection(
+            title: "개발자 비서 확장",
+            summary: "gh CLI로 GitHub repository를 가져오고 AI 보고서 옵션을 설정합니다.",
+            systemImage: "terminal",
+            isExpanded: $isDeveloperExpanded
+        ) {
             VStack(alignment: .leading, spacing: 10) {
                 SettingsTextField(title: "Git 작성자", placeholder: "git user.name 또는 email", text: $settings.gitAuthor)
                 SettingsTextField(title: "퇴근 기준 시간", placeholder: "18:00", text: $settings.workEndTime)
                 SettingsSecureField(title: "OpenAI API Key", placeholder: "Git 보고서 AI 요약 사용 시 입력", text: $settings.openAIKey)
 
-                Text("로컬에 clone 또는 pull 되어 있는 Git repository를 기준으로 상태 점검과 작업 보고를 만듭니다.")
+                Text("GitHub CLI 로그인 상태로 접근 가능한 repository 후보를 조회하고, 선택한 repository를 내려받아 관리 대상으로 저장합니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
                 GuideBox(
-                    title: "로컬 Git repository 안내",
+                    title: "GitHub CLI 연결 안내",
                     lines: [
-                        "회사 조직 토큰 없이도 로컬에 받아둔 repository의 브랜치, 커밋, 변경 상태를 확인합니다.",
-                        "STL 같은 상위 폴더를 root로 지정하고 하위 폴더 탐색을 켜면 여러 repository를 한 번에 찾습니다.",
-                        "원격 최신 상태를 보려면 각 repository의 기존 git 인증으로 fetch/pull이 가능한 상태면 충분합니다."
+                        "터미널에서 gh auth login을 한 번 진행하면 PAS가 같은 로그인 상태로 repository 후보를 조회합니다.",
+                        "조직 repository가 보이지 않으면 GitHub 조직 SSO 승인이 필요할 수 있습니다.",
+                        "선택한 repository는 지정한 clone 위치에 내려받고, 이미 있으면 fetch로 원격 상태만 갱신합니다."
                     ],
                     buttons: [
-                        GuideButton(title: "Git 문서 보기", url: "https://git-scm.com/doc")
+                        GuideButton(title: "GitHub CLI 설치 안내", url: "https://cli.github.com/"),
+                        GuideButton(title: "gh auth login 안내", url: "https://cli.github.com/manual/gh_auth_login")
                     ],
                     runner: runner
                 )
 
-                HStack {
-                    Button("repository root 폴더 추가") {
-                        runner.selectRepositoryRoot { path in
-                            if !settings.repoRoots.contains(where: { $0.path == path }) {
-                                settings.repoRoots.append(LocalRepositoryRoot(path: path, recursive: true))
-                            }
-                        }
-                    }
-
-                    Button("빈 항목 추가") {
-                        settings.repoRoots.append(LocalRepositoryRoot(path: "", recursive: true))
-                    }
-
-                    Text("등록한 root \(settings.repoRoots.filter { !$0.path.isEmpty }.count)개")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Spacer()
-                }
-
-                if settings.repoRoots.isEmpty {
-                    Text("아직 등록한 repository root가 없습니다.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    LocalRepositoryRootEditor(roots: $settings.repoRoots, runner: runner)
-                }
+                remoteRepositorySection
 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Button(isLoadingLocalRepositories ? "불러오는 중..." : "Git 프로젝트 목록 불러오기") {
+                        Button(isLoadingLocalRepositories ? "불러오는 중..." : "관리 repository 새로고침") {
                             isLoadingLocalRepositories = true
                             Task {
                                 localRepositories = await runner.loadLocalRepositories(settings: settings)
-                                if settings.repoProjectPaths.isEmpty {
-                                    settings.repoProjectPaths = Set(localRepositories.map(\.path))
-                                }
                                 isLoadingLocalRepositories = false
                             }
                         }
-                        .disabled(runner.isRunning || settings.repoRoots.isEmpty || isLoadingLocalRepositories)
+                        .disabled(runner.isRunning || isLoadingLocalRepositories)
 
                         if isLoadingLocalRepositories {
                             ProgressView()
                                 .controlSize(.small)
-                            Text("root 하위 Git 프로젝트를 확인하는 중")
+                            Text("등록된 Git repository 상태를 확인하는 중")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
 
-                        Text("선택한 프로젝트 \(settings.repoProjectPaths.count)개")
+                        Text("관리 repository \(settings.repoProjectPaths.count)개")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -249,7 +241,7 @@ struct SetupView: View {
                     }
 
                     if localRepositories.isEmpty {
-                        Text("목록을 불러오면 관리할 프로젝트를 선택할 수 있습니다. 선택값이 비어 있으면 root 하위 전체를 관리합니다.")
+                        Text("아직 관리 repository가 없습니다. 위에서 GitHub 후보를 조회한 뒤 선택 repo를 가져오면 여기에 표시됩니다.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
@@ -262,8 +254,6 @@ struct SetupView: View {
                 .padding(10)
                 .background(Color(nsColor: .controlBackgroundColor))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                remoteRepositorySection
             }
             .padding(.vertical, 6)
         }
@@ -272,32 +262,34 @@ struct SetupView: View {
     private var remoteRepositorySection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("GitHub 원격 repository 후보")
+                Text("GitHub repository 후보")
                     .font(.subheadline)
                     .bold()
+
                 Spacer()
+
                 Text("gh CLI 로그인 사용")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            Text("로컬에 저장한 토큰 없이 현재 기기의 gh auth 로그인 상태로 접근 가능한 repository를 조회하고, 선택한 root 아래로 clone합니다.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
             HStack(spacing: 8) {
                 TextField("owner 또는 org 예: MIMminE, start-today-stl", text: $remoteOwner)
                     .textFieldStyle(.roundedBorder)
 
-                Picker("clone 위치", selection: $remoteCloneRoot) {
-                    Text("root 선택").tag("")
-                    ForEach(settings.repoRoots.filter { !$0.path.isEmpty }) { root in
-                        Text(root.path).tag(root.path)
+                TextField("/Users/you/STL", text: $remoteCloneRoot)
+                    .textFieldStyle(.roundedBorder)
+
+                Button("위치 선택") {
+                    runner.selectRepositoryRoot { path in
+                        remoteCloneRoot = path
+                        if !settings.repoRoots.contains(where: { $0.path == path }) {
+                            settings.repoRoots.append(LocalRepositoryRoot(path: path, recursive: false))
+                        }
                     }
                 }
-                .frame(width: 260)
 
-                Button(isLoadingRemoteRepositories ? "조회 중..." : "원격 후보 불러오기") {
+                Button(isLoadingRemoteRepositories ? "조회 중..." : "후보 불러오기") {
                     Task { await loadRemoteRepositories() }
                 }
                 .disabled(runner.isRunning || isLoadingRemoteRepositories)
@@ -307,14 +299,14 @@ struct SetupView: View {
                 HStack {
                     ProgressView()
                         .controlSize(.small)
-                    Text(isCloningRemoteRepositories ? "선택한 repository를 clone하는 중" : "GitHub repository 후보를 조회하는 중")
+                    Text(isCloningRemoteRepositories ? "선택한 repository를 내려받고 동기화하는 중" : "GitHub repository 후보를 조회하는 중")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
 
             if remoteRepositories.isEmpty {
-                Text("후보를 불러오면 접근 가능한 repository 목록이 표시됩니다. 조직 repo가 보이지 않으면 GitHub 조직 SSO 승인이 필요할 수 있습니다.")
+                Text("후보를 불러오면 gh CLI로 접근 가능한 repository 목록이 표시됩니다. 선택한 repository는 clone 위치에 내려받고 관리 대상으로 저장합니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
@@ -324,7 +316,7 @@ struct SetupView: View {
                 )
 
                 HStack {
-                    Button("선택 repo 가져오기") {
+                    Button("선택 repo 가져오기/동기화") {
                         Task { await cloneSelectedRemoteRepositories() }
                     }
                     .disabled(
@@ -348,7 +340,12 @@ struct SetupView: View {
     }
 
     private var testSection: some View {
-        GroupBox("검증") {
+        SettingsSection(
+            title: "연결 확인",
+            summary: "저장한 설정으로 Slack, Jira, 스케줄 상태를 바로 확인합니다.",
+            systemImage: "stethoscope",
+            isExpanded: $isTestExpanded
+        ) {
             HStack(spacing: 10) {
                 Button("Slack 테스트 전송") {
                     runner.saveSettings(settings)
@@ -356,7 +353,7 @@ struct SetupView: View {
                 }
                 .disabled(runner.isRunning || !settings.isReadyForSlackTest)
 
-                Menu("목적지별 테스트") {
+                Menu("채널별 테스트") {
                     Button("연결 테스트 채널") { runSlackTest("test") }
                     Button("Jira 브리핑 채널") { runSlackTest("jira_daily") }
                     Button("Git 보고 채널") { runSlackTest("git_report") }
@@ -390,7 +387,12 @@ struct SetupView: View {
     }
 
     private var automationSection: some View {
-        GroupBox("자동 실행") {
+        SettingsSection(
+            title: "자동 실행",
+            summary: "기능별 실행 여부와 하루 한 번 실행할 시간을 정합니다.",
+            systemImage: "clock.arrow.circlepath",
+            isExpanded: $isAutomationExpanded
+        ) {
             VStack(alignment: .leading, spacing: 12) {
                 Text("기능을 끄면 수동 실행과 자동 실행 대상에서 제외됩니다. 스케줄 등록은 기존 항목을 지우고 현재 설정으로 다시 등록합니다.")
                     .font(.caption)
@@ -488,6 +490,9 @@ struct SetupView: View {
         guard !selected.isEmpty else { return }
 
         isCloningRemoteRepositories = true
+        if !settings.repoRoots.contains(where: { $0.path == targetRoot }) {
+            settings.repoRoots.append(LocalRepositoryRoot(path: targetRoot, recursive: false))
+        }
         for repo in selected {
             let result = await runner.cloneRemoteRepository(repo, targetRoot: targetRoot)
             if result.succeeded {
@@ -497,10 +502,8 @@ struct SetupView: View {
                 }
             }
         }
+        runner.saveSettings(settings)
         localRepositories = await runner.loadLocalRepositories(settings: settings)
-        settings.repoProjectPaths.formUnion(localRepositories.map(\.path).filter { path in
-            selected.contains { path.hasSuffix("/\($0.shortName)") || path.hasSuffix("\\\($0.shortName)") }
-        })
         selectedRemoteRepositoryIDs.removeAll()
         isCloningRemoteRepositories = false
     }
@@ -554,15 +557,65 @@ private struct GuideButton: Hashable {
     let url: String
 }
 
+private struct SettingsSection<Content: View>: View {
+    let title: String
+    let summary: String
+    let systemImage: String
+    @Binding var isExpanded: Bool
+    let content: Content
+
+    init(
+        title: String,
+        summary: String,
+        systemImage: String,
+        isExpanded: Binding<Bool>,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.summary = summary
+        self.systemImage = systemImage
+        self._isExpanded = isExpanded
+        self.content = content()
+    }
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            content
+                .padding(.top, 12)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 24, height: 24)
+                    .foregroundStyle(.accent)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.headline)
+
+                    Text(summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
 private struct GuideBox: View {
     let title: String
     let lines: [String]
     let buttons: [GuideButton]
     let runner: PASRunner
-    @State private var isExpanded = false
 
     var body: some View {
-        DisclosureGroup(isExpanded: $isExpanded) {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline)
+                .bold()
 
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(lines, id: \.self) { line in
@@ -582,13 +635,9 @@ private struct GuideBox: View {
                 Spacer()
             }
             .padding(.top, 6)
-        } label: {
-            Text(title)
-                .font(.subheadline)
-                .bold()
         }
         .padding(10)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(Color(nsColor: .windowBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
@@ -629,53 +678,6 @@ private struct ChannelPicker: View {
     }
 }
 
-private struct LocalRepositoryRootEditor: View {
-    @Binding var roots: [LocalRepositoryRoot]
-    let runner: PASRunner
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("관리할 로컬 repository root")
-                    .font(.subheadline)
-                    .bold()
-
-                Spacer()
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(roots.indices, id: \.self) { index in
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            TextField("/Users/you/STL", text: $roots[index].path)
-                                .textFieldStyle(.roundedBorder)
-
-                            Button("선택") {
-                                runner.selectRepositoryRoot { path in
-                                    roots[index].path = path
-                                }
-                            }
-
-                            Button("삭제") {
-                                roots.remove(at: index)
-                            }
-                        }
-
-                        Toggle("하위 폴더에서 repository 찾기", isOn: $roots[index].recursive)
-                            .font(.caption)
-                    }
-                    .padding(8)
-                    .background(Color(nsColor: .textBackgroundColor))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-            }
-        }
-        .padding(10)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-    }
-}
-
 private struct LocalRepositoryProjectPicker: View {
     let repositories: [LocalRepositoryOption]
     @Binding var selectedPaths: Set<String>
@@ -683,7 +685,7 @@ private struct LocalRepositoryProjectPicker: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("관리할 Git 프로젝트")
+                Text("관리 repository")
                     .font(.subheadline)
                     .bold()
 
@@ -747,7 +749,7 @@ private struct RemoteRepositoryPicker: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("가져올 원격 repository")
+                Text("가져올 GitHub repository")
                     .font(.subheadline)
                     .bold()
 

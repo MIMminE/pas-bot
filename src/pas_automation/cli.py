@@ -26,7 +26,7 @@ from pas_automation.features.remote_repos import clone_remote_repository, format
 from pas_automation.features.scheduler import install_schedules, schedule_status, uninstall_schedules
 from pas_automation.features.settings_import import import_settings
 from pas_automation.features.slack_test import send_test_message
-from pas_automation.integrations.git_repos import ahead_behind, commits_between, configured_repositories, discovered_repositories, fetch, pull_ff_only, pull_rebase, push, require_clean_worktree, snapshot_repo, status_porcelain
+from pas_automation.integrations.git_repos import ahead_behind, commits_between, configured_repositories, fetch, pull_ff_only, pull_rebase, push, require_clean_worktree, snapshot_repo, status_porcelain
 from pas_automation.integrations.slack import SlackClient, list_channels, section_block
 from pas_automation.runtime_env import load_env_file
 
@@ -51,7 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     jira_assign.add_argument("account_id_or_email", help="담당자 accountId, 이메일 또는 alias")
     jira_assign.add_argument("--dry-run", action="store_true", help="실제 할당 없이 미리보기")
 
-    jira_link_repo = jira_sub.add_parser("link-repo", help="Jira 일감과 관리 중인 로컬 repository 연결")
+    jira_link_repo = jira_sub.add_parser("link-repo", help="Jira 일감과 관리 중인 repository 연결")
     jira_link_repo.add_argument("issue_key", help="Jira 이슈 키")
     jira_link_repo.add_argument("--repo", required=True, help="연결할 관리 repository 경로")
     jira_link_repo.add_argument("--summary", default="", help="일감 요약")
@@ -69,7 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
     slack_test.add_argument(
         "--destination",
         default="test",
-        help="전송할 Slack 목적지 키: test, jira_daily, git_report, git_status, alerts, default",
+        help="전송할 Slack 채널 설정 키: test, jira_daily, git_report, git_status, alerts, default",
     )
     slack_channels = slack_sub.add_parser("channels", help="Slack OAuth 채널 목록 조회")
     slack_channels.add_argument("--format", choices=["text", "tsv"], default="text", help="출력 형식")
@@ -87,20 +87,20 @@ def build_parser() -> argparse.ArgumentParser:
     repo_report.add_argument("--notes-file", help="AI 보고서에 함께 반영할 수동 메모 파일")
     repo_report.add_argument("--report-agent-file", help="보고서 작성 규칙 Markdown 파일")
 
-    repo_status = repo_sub.add_parser("status", help="로컬 repository 변경/push/pull 상태 요약")
+    repo_status = repo_sub.add_parser("status", help="관리 repository 변경/push/pull 상태 요약")
     repo_status.add_argument("--send-slack", action="store_true", help="Slack으로 실제 전송")
     repo_status.add_argument("--dry-run", action="store_true", help="외부 전송 없이 미리보기")
 
-    repo_list = repo_sub.add_parser("list", help="설정된 root 하위 Git repository 목록 조회")
+    repo_list = repo_sub.add_parser("list", help="gh CLI로 등록한 관리 Git repository 목록 조회")
     repo_list.add_argument("--format", choices=["text", "tsv"], default="text", help="출력 형식")
-    repo_list.add_argument("--all", action="store_true", help="관리 대상 선택값을 무시하고 root 하위 전체 조회")
+    repo_list.add_argument("--all", action="store_true", help="호환용 옵션입니다. 현재는 관리 대상으로 등록한 repository만 조회합니다.")
 
     repo_remote_list = repo_sub.add_parser("remote-list", help="gh CLI 인증으로 접근 가능한 GitHub repository 후보 조회")
     repo_remote_list.add_argument("--owner", default="", help="조회할 GitHub user/org. 비우면 현재 gh 계정 기준")
     repo_remote_list.add_argument("--limit", type=int, default=200, help="최대 조회 개수")
     repo_remote_list.add_argument("--format", choices=["text", "tsv"], default="text", help="출력 형식")
 
-    repo_clone = repo_sub.add_parser("clone", help="gh CLI로 원격 repository를 로컬 root에 clone")
+    repo_clone = repo_sub.add_parser("clone", help="gh CLI로 원격 repository를 clone 위치에 내려받기")
     repo_clone.add_argument("--repo", required=True, help="owner/name, SSH URL 또는 HTTPS URL")
     repo_clone.add_argument("--target-root", required=True, help="clone할 상위 폴더")
 
@@ -155,7 +155,7 @@ def build_parser() -> argparse.ArgumentParser:
     dev_pr.add_argument("--repo", help="대상 repository 경로")
     dev_pr.add_argument("--issue-key", help="PR에 연결할 Jira 이슈 키")
     dev_sub.add_parser("audit-jira-keys", help="Jira 키가 없는 브랜치/커밋 점검")
-    dev_sub.add_parser("dashboard", help="로컬 repository 상태 대시보드")
+    dev_sub.add_parser("dashboard", help="관리 repository 상태 대시보드")
     dev_sub.add_parser("calendar", help="캘린더 일정 요약")
 
     ai = subparsers.add_parser("ai", help="AI 보고서/초안 생성")
@@ -180,10 +180,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     status = subparsers.add_parser("status", help="설정/연결 상태 진단")
     status_sub = status.add_subparsers(dest="command", required=True)
-    status_sub.add_parser("doctor", help="설정값과 로컬 repository root 진단")
+    status_sub.add_parser("doctor", help="설정값과 관리 repository 진단")
     health = status_sub.add_parser("health", help="API 키/토큰과 실제 연결 상태 확인")
     health.add_argument("--no-network", action="store_true", help="네트워크 호출 없이 필수 설정만 확인")
-    health.add_argument("--send-alert", action="store_true", help="실패 항목을 Slack alerts 목적지로 전송")
+    health.add_argument("--send-alert", action="store_true", help="실패 항목을 Slack alerts 채널로 전송")
 
     schedule = subparsers.add_parser("schedule", help="OS 스케줄러 등록/제거")
     schedule_sub = schedule.add_subparsers(dest="command", required=True)
@@ -276,7 +276,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.area == "repo" and args.command == "list":
-        repos = discovered_repositories(config) if args.all else configured_repositories(config)
+        repos = configured_repositories(config)
         if args.format == "tsv":
             rows = []
             for repo_path in repos:

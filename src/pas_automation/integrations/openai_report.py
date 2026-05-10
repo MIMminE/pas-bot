@@ -35,7 +35,7 @@ def generate_text(config: OpenAIConfig, *, system: str, prompt: str, fallback: s
 
 def build_report(config: OpenAIConfig, commits_text: str, *, manual_notes: str = "", report_rules: str = "") -> str:
     prompt_parts = [
-        "아래 로컬 Git repository 상태와 커밋 목록, 사용자가 직접 작성한 메모를 기반으로 오늘 작업 보고서를 한국어로 작성해줘.",
+        "아래 관리 Git repository 상태와 커밋 목록, 사용자가 직접 작성한 메모를 기반으로 오늘 작업 보고서를 한국어로 작성해줘.",
         "Slack에 바로 보낼 수 있게 정리하고, repo 상태의 rebase/pull/push 필요 여부도 참고 항목에 반영해줘.",
     ]
     if report_rules.strip():

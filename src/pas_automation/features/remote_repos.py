@@ -78,8 +78,11 @@ def clone_remote_repository(*, repo: str, target_root: str) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     repo_name = repo.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
     target = root / repo_name
+    if (target / ".git").is_dir():
+        _run(["git", "-C", str(target), "fetch", "--prune"])
+        return target
     if target.exists():
-        raise RuntimeError(f"이미 같은 이름의 경로가 있습니다: {target}")
+        raise RuntimeError(f"이미 같은 이름의 경로가 있지만 Git repository가 아닙니다: {target}")
     _run(["gh", "repo", "clone", repo, str(target)])
     return target
 
@@ -95,7 +98,12 @@ def _run(args: list[str]) -> str:
             errors="replace",
         )
     except FileNotFoundError as exc:
-        raise RuntimeError("gh CLI를 찾지 못했습니다. 먼저 GitHub CLI를 설치하고 gh auth login을 실행해 주세요.") from exc
+        tool = args[0]
+        if tool == "gh":
+            message = "gh CLI를 찾지 못했습니다. 먼저 GitHub CLI를 설치하고 gh auth login을 실행해 주세요."
+        else:
+            message = f"{tool} 실행 파일을 찾지 못했습니다."
+        raise RuntimeError(message) from exc
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or exc.stdout or "").strip()
         raise RuntimeError(f"{' '.join(args)} 실패: {detail}") from exc

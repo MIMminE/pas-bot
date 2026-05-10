@@ -11,29 +11,9 @@ class RepoSnapshot:
     head: str
     branch: str
 
-
-def discover_repositories(root: Path, *, recursive: bool) -> list[Path]:
-    root = root.resolve()
-    if not root.exists():
-        return []
-    candidates = root.rglob(".git") if recursive else root.glob(".git")
-    repos = sorted({item.parent for item in candidates if item.is_dir()})
-    return repos
-
-
 def configured_repositories(config) -> list[Path]:
     selected = {item.path.expanduser().resolve() for item in getattr(config, "repo_projects", [])}
-    if selected:
-        return sorted((path for path in selected if (path / ".git").is_dir()), key=lambda item: str(item).lower())
-
-    return discovered_repositories(config)
-
-
-def discovered_repositories(config) -> list[Path]:
-    repos: set[Path] = set()
-    for root in config.repo_roots:
-        repos.update(discover_repositories(root.path.expanduser(), recursive=root.recursive))
-    return sorted(repos, key=lambda item: str(item).lower())
+    return sorted((path for path in selected if (path / ".git").is_dir()), key=lambda item: str(item).lower())
 
 
 def git(repo: Path, *args: str) -> str:

@@ -182,7 +182,7 @@ def _repo_path(config: AppConfig, repo_path: str | None) -> Path:
         return Path(repo_path).expanduser()
     repos = _repositories(config)
     if not repos:
-        raise RuntimeError("설정된 repository root에서 Git repository를 찾지 못했습니다.")
+        raise RuntimeError("관리 대상으로 등록된 Git repository가 없습니다. 설정에서 gh CLI 후보를 가져와 등록해 주세요.")
     return repos[0]
 
 
