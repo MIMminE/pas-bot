@@ -28,6 +28,16 @@ class JiraClient:
         )
         return payload.get("issues", [])
 
+    def issue(self, issue_key: str) -> dict:
+        url = f"{self.config.base_url}/rest/api/3/issue/{quote(issue_key)}"
+        return json_request(
+            "GET",
+            url,
+            headers=self.headers,
+            payload=None,
+            timeout=30,
+        )
+
     def assign_issue(self, issue_key: str, account_id_or_email: str) -> None:
         account_id = account_id_or_email
         if "@" in account_id_or_email:

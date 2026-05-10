@@ -4,6 +4,7 @@ import argparse
 
 from pas_automation.app_state import default_config_path, default_env_path, init_app_data
 from pas_automation.config import load_config
+from pas_automation.features.ai_assistant import git_summary, incident_draft, jira_issue_summary, monthly_review, pr_description
 from pas_automation.features.assignees import list_assignees
 from pas_automation.features.automation import tick
 from pas_automation.features.dev_assistant import audit_jira_keys, branch_name, commit_message, dashboard, evening_check, morning_briefing, pr_draft
@@ -90,6 +91,26 @@ def build_parser() -> argparse.ArgumentParser:
     dev_pr.add_argument("--issue-key")
     dev_sub.add_parser("audit-jira-keys", help="Find branches/commits without Jira issue keys")
     dev_sub.add_parser("dashboard", help="Show local repo dashboard")
+
+    ai = subparsers.add_parser("ai", help="AI assisted reports and drafts")
+    ai_sub = ai.add_subparsers(dest="command", required=True)
+    ai_git = ai_sub.add_parser("git-summary", help="Summarize recent git commits")
+    ai_git.add_argument("--tone", choices=["brief", "detailed", "manager"], default="brief")
+    ai_git.add_argument("--days", type=int, default=1)
+    ai_pr = ai_sub.add_parser("pr-draft", help="Draft PR title and body with AI")
+    ai_pr.add_argument("--repo")
+    ai_pr.add_argument("--issue-key")
+    ai_pr.add_argument("--tone", choices=["brief", "detailed", "manager"], default="brief")
+    ai_jira = ai_sub.add_parser("jira-summary", help="Summarize Jira issue with AI")
+    ai_jira.add_argument("issue_key")
+    ai_jira.add_argument("--tone", choices=["brief", "detailed", "manager"], default="brief")
+    ai_month = ai_sub.add_parser("monthly-review", help="Draft monthly retrospective from commits")
+    ai_month.add_argument("--month", required=True, help="YYYY-MM")
+    ai_month.add_argument("--tone", choices=["brief", "detailed", "manager"], default="manager")
+    ai_incident = ai_sub.add_parser("incident-draft", help="Draft incident or bug cause analysis")
+    ai_incident.add_argument("--issue-key")
+    ai_incident.add_argument("--notes", default="")
+    ai_incident.add_argument("--tone", choices=["brief", "detailed", "manager"], default="detailed")
 
     status = subparsers.add_parser("status", help="Local app status and diagnostics")
     status_sub = status.add_subparsers(dest="command", required=True)
@@ -189,6 +210,26 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.area == "dev" and args.command == "dashboard":
         print(dashboard(config))
+        return 0
+
+    if args.area == "ai" and args.command == "git-summary":
+        print(git_summary(config, tone=args.tone, days=args.days))
+        return 0
+
+    if args.area == "ai" and args.command == "pr-draft":
+        print(pr_description(config, repo_path=args.repo, issue_key=args.issue_key, tone=args.tone))
+        return 0
+
+    if args.area == "ai" and args.command == "jira-summary":
+        print(jira_issue_summary(config, issue_key=args.issue_key, tone=args.tone))
+        return 0
+
+    if args.area == "ai" and args.command == "monthly-review":
+        print(monthly_review(config, month=args.month, tone=args.tone))
+        return 0
+
+    if args.area == "ai" and args.command == "incident-draft":
+        print(incident_draft(config, issue_key=args.issue_key, notes=args.notes, tone=args.tone))
         return 0
 
     if args.area == "status" and args.command == "doctor":
