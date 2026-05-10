@@ -159,40 +159,34 @@ final class PASRunner: ObservableObject {
     func loadSlackChannels(settings: PASSettings, completion: @escaping ([SlackChannel]) -> Void) {
         saveSettings(settings)
         status = "Slack 채널 목록을 불러오는 중..."
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Self.execute(["slack", "channels", "--format", "tsv"])
-            let channels = Self.parseSlackChannels(result.output)
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.lastOutput = result.output
-                self.status = result.succeeded ? "Slack 채널 목록을 불러왔습니다" : "Slack 채널 조회 실패"
-                if !result.succeeded {
-                    self.openOutputWindow(title: "Slack 채널 조회 오류", output: result.output.isEmpty ? result.summary : result.output)
-                    completion([])
-                    return
-                }
-                completion(channels)
+        Task { [weak self] in
+            let result = await Self.executeDetached(["slack", "channels", "--format", "tsv"])
+            guard let self else { return }
+            self.lastOutput = result.output
+            self.status = result.succeeded ? "Slack 채널 목록을 불러왔습니다" : "Slack 채널 조회 실패"
+            if !result.succeeded {
+                self.openOutputWindow(title: "Slack 채널 조회 오류", output: result.output.isEmpty ? result.summary : result.output)
+                completion([])
+                return
             }
+            completion(Self.parseSlackChannels(result.output))
         }
     }
 
     func loadGitHubRepositories(settings: PASSettings, completion: @escaping ([GitHubRepositoryOption]) -> Void) {
         saveSettings(settings)
         status = "GitHub repository 목록을 불러오는 중..."
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Self.execute(["repo", "remote-list", "--format", "tsv"])
-            let repositories = Self.parseGitHubRepositories(result.output)
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.lastOutput = result.output
-                self.status = result.succeeded ? "GitHub repository 목록을 불러왔습니다" : "GitHub repository 조회 실패"
-                if !result.succeeded {
-                    self.openOutputWindow(title: "GitHub repository 조회 오류", output: result.output.isEmpty ? result.summary : result.output)
-                    completion([])
-                    return
-                }
-                completion(repositories)
+        Task { [weak self] in
+            let result = await Self.executeDetached(["repo", "remote-list", "--format", "tsv"])
+            guard let self else { return }
+            self.lastOutput = result.output
+            self.status = result.succeeded ? "GitHub repository 목록을 불러왔습니다" : "GitHub repository 조회 실패"
+            if !result.succeeded {
+                self.openOutputWindow(title: "GitHub repository 조회 오류", output: result.output.isEmpty ? result.summary : result.output)
+                completion([])
+                return
             }
+            completion(Self.parseGitHubRepositories(result.output))
         }
     }
 
@@ -222,6 +216,12 @@ final class PASRunner: ObservableObject {
                 )
             }
             .sorted { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
+    }
+
+    private nonisolated static func executeDetached(_ arguments: [String]) async -> (succeeded: Bool, output: String, summary: String) {
+        await Task.detached(priority: .userInitiated) {
+            Self.execute(arguments)
+        }.value
     }
 
     private nonisolated static func execute(_ arguments: [String]) -> (succeeded: Bool, output: String, summary: String) {
@@ -714,7 +714,7 @@ struct PASSettings {
     }
 }
 
-struct SlackChannel: Identifiable, Hashable {
+struct SlackChannel: Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let isPrivate: Bool
@@ -724,7 +724,7 @@ struct SlackChannel: Identifiable, Hashable {
     }
 }
 
-struct GitHubRepositoryOption: Identifiable, Hashable {
+struct GitHubRepositoryOption: Identifiable, Hashable, Sendable {
     let owner: String
     let name: String
     let isPrivate: Bool
