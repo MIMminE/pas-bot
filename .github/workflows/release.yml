@@ -134,6 +134,9 @@ jobs:
 
           mkdir -p "$MACOS" "$RESOURCES/bin"
           cp apps/macos/PASMenuBar/Info.plist "$CONTENTS/Info.plist"
+          VERSION="${GITHUB_REF_NAME#v}"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$CONTENTS/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $GITHUB_RUN_NUMBER" "$CONTENTS/Info.plist"
           cp apps/macos/PASMenuBar/.build/release/PASMenuBar "$MACOS/PASMenuBar"
           cp dist/pas "$RESOURCES/bin/pas"
           cp config.example.toml "$RESOURCES/config.example.toml"

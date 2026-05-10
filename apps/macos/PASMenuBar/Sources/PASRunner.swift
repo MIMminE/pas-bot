@@ -14,10 +14,8 @@ final class PASRunner: ObservableObject {
 
     init() {
         try? prepareSupportFiles()
-        if !setupCompleted() {
-            DispatchQueue.main.async { [weak self] in
-                self?.openSetupWindow()
-            }
+        DispatchQueue.main.async { [weak self] in
+            self?.openSetupWindow()
         }
     }
 
@@ -95,15 +93,6 @@ final class PASRunner: ObservableObject {
 
     func closeSetupWindow() {
         setupWindow?.close()
-    }
-
-    func setupCompleted() -> Bool {
-        guard let data = try? Data(contentsOf: stateURL()),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else {
-            return false
-        }
-        return object["setup_completed"] as? Bool == true
     }
 
     func loadSettings() -> PASSettings {
