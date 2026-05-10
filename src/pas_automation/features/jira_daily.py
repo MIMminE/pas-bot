@@ -13,8 +13,6 @@ from pas_automation.integrations.git_repos import configured_repositories, git
 from pas_automation.integrations.jira import JiraClient
 from pas_automation.integrations.slack import (
     SlackClient,
-    actions_block,
-    button_element,
     context_block,
     divider_block,
     fields_block,
@@ -159,9 +157,9 @@ def _build_slack_blocks(
         repo_link_text = _format_issue_repo_link_markdown(issue, repo_links)
         if repo_link_text:
             blocks.append(context_block(repo_link_text))
-        issue_actions = _issue_action_block(issue, branch_matches, repo_links)
+        issue_actions = _format_issue_actions_markdown(issue, repo_links)
         if issue_actions:
-            blocks.append(issue_actions)
+            blocks.append(context_block(issue_actions))
         blocks.append(divider_block())
 
     if len(issues) > 10:
@@ -276,18 +274,13 @@ def _format_branches_markdown(issue: dict[str, Any], branch_matches: dict[str, l
     return "\n".join(lines)
 
 
-def _issue_action_block(
-    issue: dict[str, Any],
-    branch_matches: dict[str, list[LocalBranchMatch]],
-    repo_links: dict[str, IssueRepositoryLink],
-) -> dict[str, Any] | None:
+def _format_issue_actions_markdown(issue: dict[str, Any], repo_links: dict[str, IssueRepositoryLink]) -> str:
     issue_key = issue["key"]
     summary = str((issue.get("fields", {}) or {}).get("summary", ""))
-    buttons = [
-        button_element(
-            "레포 연결 선택",
+    links = [
+        _slack_link(
             f"pas://jira/link?{urlencode({'issue': issue_key, 'summary': summary})}",
-            action_id=f"jira_repo_link_{issue_key}"[:255],
+            "레포 연결 선택",
         )
     ]
     repo_link = repo_links.get(issue_key)
@@ -299,14 +292,17 @@ def _issue_action_block(
                 "repo": str(repo_link.repo_path),
             }
         )
-        buttons.append(
-            button_element(
-                f"{repo_link.repo_name} dev에서 브랜치 시작",
+        links.append(
+            _slack_link(
                 f"pas://branch/create?{query}",
-                action_id=f"branch_create_{issue_key}_{repo_link.repo_name}"[:255],
+                f"{repo_link.repo_name} dev에서 브랜치 시작",
             )
         )
-    return actions_block(buttons)
+    return "작업: " + " · ".join(links)
+
+
+def _slack_link(url: str, label: str) -> str:
+    return f"<{url}|{label}>"
 
 
 def _format_issue_repo_link_markdown(issue: dict[str, Any], repo_links: dict[str, IssueRepositoryLink]) -> str:
