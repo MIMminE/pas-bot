@@ -59,13 +59,13 @@ model = "gpt-5-mini"
 [github]
 token = ""
 
-[features]
-morning_briefing = true
-evening_check = true
-jira_daily = true
-git_report = true
-git_status = true
+[feature_groups]
+jira = true
+git = true
+routines = true
+ai = true
 dev_tools = true
+notifications = true
 
 [schedules.morning_briefing]
 enabled = false
@@ -76,7 +76,7 @@ holiday_dates = []
 ```
 
 `[slack].webhook_url`은 기본 fallback입니다. 기능별 채널을 나누고 싶으면 `[slack.webhooks]`에 각 웹훅을 입력합니다.
-`[features]`에서 기능 자체를 끄면 수동 실행과 자동 실행 대상에서 제외됩니다. `[schedules.*]`는 OS 스케줄러 등록 여부와 실행 시간을 제어합니다.
+`[feature_groups]`에서 Jira/Git/루틴/AI/개발 도구/알림 묶음을 끄면 해당 묶음의 수동 실행과 자동 실행 대상에서 제외됩니다. `[schedules.*]`는 OS 스케줄러 등록 여부와 실행 시간을 제어합니다.
 
 `config.toml`은 git에 커밋하지 않습니다. 릴리즈 앱을 처음 실행하면 OS별 앱 데이터 폴더에 초기 설정 파일을 만들고, 이후 업데이트에서는 기존 로컬 설정을 계속 사용합니다.
 

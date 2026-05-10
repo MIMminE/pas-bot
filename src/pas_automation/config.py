@@ -55,15 +55,46 @@ class GitHubConfig:
 
 @dataclass(frozen=True)
 class FeatureConfig:
-    morning_briefing: bool
-    evening_check: bool
-    jira_daily: bool
-    git_report: bool
-    git_status: bool
+    jira: bool
+    git: bool
+    routines: bool
+    ai: bool
     dev_tools: bool
+    notifications: bool
 
     def enabled(self, task_name: str) -> bool:
-        return bool(getattr(self, task_name, False))
+        return {
+            "jira_daily": self.jira,
+            "jira_assign": self.jira,
+            "git_report": self.git,
+            "git_status": self.git,
+            "repo_snapshot": self.git,
+            "morning_briefing": self.routines,
+            "evening_check": self.routines,
+            "ai": self.ai,
+            "dev_tools": self.dev_tools,
+            "notifications": self.notifications,
+        }.get(task_name, True)
+
+    @property
+    def morning_briefing(self) -> bool:
+        return self.routines
+
+    @property
+    def evening_check(self) -> bool:
+        return self.routines
+
+    @property
+    def jira_daily(self) -> bool:
+        return self.jira
+
+    @property
+    def git_report(self) -> bool:
+        return self.git
+
+    @property
+    def git_status(self) -> bool:
+        return self.git
 
 
 @dataclass(frozen=True)
@@ -107,6 +138,7 @@ def load_config(path: str | Path) -> AppConfig:
     openai_raw = raw.get("openai", {})
     github_raw = raw.get("github", {})
     features_raw = raw.get("features", {})
+    feature_groups_raw = raw.get("feature_groups", {})
     schedules_raw = raw.get("schedules", {})
 
     data_dir = Path(general_raw.get("data_dir", ".pas"))
@@ -179,12 +211,12 @@ def load_config(path: str | Path) -> AppConfig:
             ],
         ),
         features=FeatureConfig(
-            morning_briefing=bool(features_raw.get("morning_briefing", True)),
-            evening_check=bool(features_raw.get("evening_check", True)),
-            jira_daily=bool(features_raw.get("jira_daily", True)),
-            git_report=bool(features_raw.get("git_report", True)),
-            git_status=bool(features_raw.get("git_status", True)),
-            dev_tools=bool(features_raw.get("dev_tools", True)),
+            jira=_group_enabled(feature_groups_raw, features_raw, "jira", ["jira_daily"]),
+            git=_group_enabled(feature_groups_raw, features_raw, "git", ["git_report", "git_status"]),
+            routines=_group_enabled(feature_groups_raw, features_raw, "routines", ["morning_briefing", "evening_check"]),
+            ai=bool(feature_groups_raw.get("ai", features_raw.get("ai", True))),
+            dev_tools=bool(feature_groups_raw.get("dev_tools", features_raw.get("dev_tools", True))),
+            notifications=bool(feature_groups_raw.get("notifications", features_raw.get("notifications", True))),
         ),
         schedules={
             task_name: _load_schedule(schedules_raw, task_name, default_time)
@@ -217,3 +249,10 @@ def _load_schedule(raw: dict, task_name: str, default_time: str) -> ScheduleConf
         weekdays_only=bool(section.get("weekdays_only", True)),
         holiday_dates={str(item) for item in section.get("holiday_dates", [])},
     )
+
+
+def _group_enabled(groups: dict, legacy: dict, group_name: str, legacy_keys: list[str]) -> bool:
+    if group_name in groups:
+        return bool(groups[group_name])
+    values = [bool(legacy.get(key, True)) for key in legacy_keys]
+    return all(values)

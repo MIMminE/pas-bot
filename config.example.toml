@@ -38,13 +38,13 @@ token = ""
 owner = "your-org"
 name = "your-repo"
 
-[features]
-morning_briefing = true
-evening_check = true
-jira_daily = true
-git_report = true
-git_status = true
+[feature_groups]
+jira = true
+git = true
+routines = true
+ai = true
 dev_tools = true
+notifications = true
 
 [schedules.morning_briefing]
 enabled = false

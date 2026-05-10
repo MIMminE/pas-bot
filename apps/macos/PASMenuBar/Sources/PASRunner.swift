@@ -123,9 +123,9 @@ final class PASRunner: ObservableObject {
             workEndTime: readConfigValue(section: "general", key: "work_end_time"),
             githubToken: readConfigValue(section: "github", key: "token"),
             openAIKey: readConfigValue(section: "openai", key: "api_key"),
-            jiraDailyEnabled: readBoolConfigValue(section: "features", key: "jira_daily", defaultValue: true),
-            gitReportEnabled: readBoolConfigValue(section: "features", key: "git_report", defaultValue: true),
-            gitStatusEnabled: readBoolConfigValue(section: "features", key: "git_status", defaultValue: true),
+            jiraDailyEnabled: readBoolConfigValue(section: "feature_groups", key: "jira", defaultValue: true),
+            gitReportEnabled: readBoolConfigValue(section: "feature_groups", key: "git", defaultValue: true),
+            gitStatusEnabled: readBoolConfigValue(section: "feature_groups", key: "git", defaultValue: true),
             jiraDailyScheduleEnabled: readBoolConfigValue(section: "schedules.jira_daily", key: "enabled", defaultValue: false),
             jiraDailyScheduleTime: readConfigValue(section: "schedules.jira_daily", key: "time"),
             jiraDailyCatchUp: readBoolConfigValue(section: "schedules.jira_daily", key: "catch_up_if_missed", defaultValue: true),
@@ -336,9 +336,12 @@ final class PASRunner: ObservableObject {
         text = replaceConfigValue(text, section: "slack.webhooks", key: "alerts", value: settings.slackAlertsWebhookURL)
         text = replaceConfigValue(text, section: "github", key: "token", value: settings.githubToken)
         text = replaceConfigValue(text, section: "openai", key: "api_key", value: settings.openAIKey)
-        text = replaceConfigBoolValue(text, section: "features", key: "jira_daily", value: settings.jiraDailyEnabled)
-        text = replaceConfigBoolValue(text, section: "features", key: "git_report", value: settings.gitReportEnabled)
-        text = replaceConfigBoolValue(text, section: "features", key: "git_status", value: settings.gitStatusEnabled)
+        text = replaceConfigBoolValue(text, section: "feature_groups", key: "jira", value: settings.jiraDailyEnabled)
+        text = replaceConfigBoolValue(text, section: "feature_groups", key: "git", value: settings.gitReportEnabled || settings.gitStatusEnabled)
+        text = replaceConfigBoolValue(text, section: "feature_groups", key: "routines", value: true)
+        text = replaceConfigBoolValue(text, section: "feature_groups", key: "ai", value: true)
+        text = replaceConfigBoolValue(text, section: "feature_groups", key: "dev_tools", value: true)
+        text = replaceConfigBoolValue(text, section: "feature_groups", key: "notifications", value: true)
         text = replaceConfigBoolValue(text, section: "schedules.jira_daily", key: "enabled", value: settings.jiraDailyScheduleEnabled)
         text = replaceConfigValue(text, section: "schedules.jira_daily", key: "time", value: settings.jiraDailyScheduleTimeOrDefault)
         text = replaceConfigBoolValue(text, section: "schedules.jira_daily", key: "catch_up_if_missed", value: settings.jiraDailyCatchUp)

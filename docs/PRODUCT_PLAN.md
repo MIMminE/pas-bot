@@ -80,13 +80,13 @@ token = ""
 owner = "your-org"
 name = "your-repo"
 
-[features]
-morning_briefing = true
-evening_check = true
-jira_daily = true
-git_report = true
-git_status = true
+[feature_groups]
+jira = true
+git = true
+routines = true
+ai = true
 dev_tools = true
+notifications = true
 
 [schedules.jira_daily]
 enabled = false
@@ -120,7 +120,8 @@ catch_up_if_missed = true
 
 스케줄 정책:
 
-- 기능별로 `enabled`를 두어 수동 실행과 자동 실행을 함께 제어한다.
+- `[feature_groups]`로 Jira/Git/루틴/AI/개발 도구/알림 묶음의 활성 여부를 제어한다.
+- `[schedules.*].enabled`는 각 자동 실행 항목의 등록 여부만 제어한다.
 - OS 스케줄러 등록은 덮어쓰기 방식으로 동작한다. 같은 PAS 작업이 있으면 제거 후 재등록한다.
 - 스케줄러는 `pas automation tick --task ...`만 실행하고, 실제 하루 1회 전송 여부는 PAS가 `state.json`으로 판단한다.
 - 설정 시간이 지났고 오늘 전송 이력이 없으면 실행한다. 컴퓨터가 꺼져 있어서 놓친 경우에도 `RunAtLoad` 또는 로그인 이후 tick 실행 시 한 번 보낸다.

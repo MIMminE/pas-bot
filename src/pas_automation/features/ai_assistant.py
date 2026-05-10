@@ -12,6 +12,7 @@ from pas_automation.integrations.openai_report import generate_text, tone_instru
 
 
 def git_summary(config: AppConfig, *, tone: str = "brief", days: int = 1) -> str:
+    _ensure_ai(config)
     commits = _recent_commit_context(config, days=days)
     return generate_text(
         config.openai,
@@ -26,6 +27,7 @@ def git_summary(config: AppConfig, *, tone: str = "brief", days: int = 1) -> str
 
 
 def pr_description(config: AppConfig, *, repo_path: str | None, issue_key: str | None, tone: str = "brief") -> str:
+    _ensure_ai(config)
     repo = _repo_path(config, repo_path)
     commits = "\n".join(recent_commits(repo, author=config.general.git_author, max_count=15))
     branch = current_branch(repo)
@@ -45,6 +47,7 @@ def pr_description(config: AppConfig, *, repo_path: str | None, issue_key: str |
 
 
 def jira_issue_summary(config: AppConfig, *, issue_key: str, tone: str = "brief") -> str:
+    _ensure_ai(config)
     context = _jira_issue_context(config, issue_key)
     return generate_text(
         config.openai,
@@ -59,6 +62,7 @@ def jira_issue_summary(config: AppConfig, *, issue_key: str, tone: str = "brief"
 
 
 def monthly_review(config: AppConfig, *, month: str, tone: str = "manager") -> str:
+    _ensure_ai(config)
     start, end = _month_range(month)
     commits = _commit_context_between(config, start=start, end=end)
     return generate_text(
@@ -74,6 +78,7 @@ def monthly_review(config: AppConfig, *, month: str, tone: str = "manager") -> s
 
 
 def incident_draft(config: AppConfig, *, issue_key: str | None, notes: str, tone: str = "detailed") -> str:
+    _ensure_ai(config)
     issue = _jira_issue_context(config, issue_key) if issue_key else ""
     return generate_text(
         config.openai,
@@ -96,6 +101,11 @@ def _system(tone: str) -> str:
         "Separate facts from assumptions. "
         f"Tone: {tone_instruction(tone)}"
     )
+
+
+def _ensure_ai(config: AppConfig) -> None:
+    if not config.features.enabled("ai"):
+        raise RuntimeError("AI 확장 기능이 꺼져 있습니다.")
 
 
 def _recent_commit_context(config: AppConfig, *, days: int) -> str:
