@@ -110,6 +110,15 @@ macOS 설정 화면은 각 외부 서비스의 토큰 생성 페이지를 바로
 - Jira: Atlassian API 토큰 생성 페이지를 열고, 생성한 토큰을 Jira API Token 입력칸에 붙여넣습니다.
 - Git: gh CLI 로그인 상태로 GitHub repository 후보를 조회하고, 선택한 repository를 clone 위치에 내려받아 관리 대상으로 등록합니다.
 
+## Jira-Git 작업 원칙
+
+PAS의 기본 업무 흐름은 `Jira 일감 -> 연결 repository -> Jira 키 작업 브랜치 -> PR -> merge`입니다.
+
+- 작업 브랜치 이름에는 `LMS-123` 같은 Jira 키가 포함되어야 합니다.
+- `main`, `master`, `dev`, `develop`, `development` 브랜치는 기준 브랜치로 보고 직접 push를 제한합니다.
+- Jira 일감 카드의 repository 연결/브랜치 시작 흐름이나 `pas dev start-issue` 명령으로 작업 브랜치를 만든 뒤 개발합니다.
+- 관리 repository 상태/퇴근 체크에서는 기준 브랜치 작업과 Jira 키 없는 브랜치를 확인 필요 항목으로 표시합니다.
+
 `config.toml`은 git에 커밋하지 않습니다. 릴리즈 앱을 실행하면 OS별 앱 데이터 폴더에 설정 파일을 만들고, macOS 메뉴바 앱은 시작할 때마다 설정 화면을 먼저 엽니다. 기존 로컬 설정이 있으면 입력값을 미리 채운 상태로 보여주며, 이후 업데이트에서도 같은 로컬 설정을 계속 사용합니다.
 
 Jira 담당자 alias는 같은 폴더의 `assignees.json`에 저장합니다. 이 파일이 있으면 `me`, `choi` 같은 짧은 이름으로 Jira 담당자를 조회하거나 할당할 수 있습니다.

@@ -195,7 +195,7 @@ struct RepositoryDashboardRow: View {
                     RepoIconButton(title: "재정렬", systemImage: "arrow.triangle.branch", action: onRebase)
                         .disabled(isRunning || !repo.needsUpdate || repo.dirtyCount > 0)
                     RepoIconButton(title: "올리기", systemImage: "arrow.up", action: onPush)
-                        .disabled(isRunning || (repo.ahead ?? 0) == 0)
+                        .disabled(isRunning || (repo.ahead ?? 0) == 0 || !repo.isJiraWorkBranch)
                 }
             }
         }
@@ -214,6 +214,12 @@ struct RepositoryDashboardRow: View {
         if repo.dirtyCount > 0 {
             return .orange
         }
+        if repo.isProtectedWorkflowBranch {
+            return .red
+        }
+        if !repo.isJiraWorkBranch {
+            return .orange
+        }
         if repo.needsRebase {
             return .red
         }
@@ -230,6 +236,12 @@ struct RepositoryDashboardRow: View {
         if repo.dirtyCount > 0 {
             return "exclamationmark.triangle.fill"
         }
+        if repo.isProtectedWorkflowBranch {
+            return "lock.fill"
+        }
+        if !repo.isJiraWorkBranch {
+            return "number"
+        }
         if repo.needsRebase {
             return "arrow.triangle.merge"
         }
@@ -245,6 +257,12 @@ struct RepositoryDashboardRow: View {
     private var guidanceTitle: String {
         if repo.dirtyCount > 0 && repo.needsUpdate {
             return "판단 필요"
+        }
+        if repo.isProtectedWorkflowBranch {
+            return "기준 브랜치 보호"
+        }
+        if !repo.isJiraWorkBranch {
+            return "Jira 키 브랜치 필요"
         }
         if repo.dirtyCount > 0 {
             return "로컬 변경 정리"
@@ -264,6 +282,12 @@ struct RepositoryDashboardRow: View {
     private var guidanceMessage: String {
         let ahead = repo.ahead ?? 0
         let behind = repo.behind ?? 0
+        if repo.isProtectedWorkflowBranch {
+            return "main/dev 계열에는 직접 push하지 않습니다. Jira 일감에서 작업 브랜치를 만든 뒤 PR로 반영하세요."
+        }
+        if !repo.isJiraWorkBranch {
+            return "브랜치 이름에 LMS-123 같은 Jira 키가 필요합니다. Jira 일감 시작 흐름으로 브랜치를 생성하세요."
+        }
         if repo.dirtyCount > 0 && behind > 0 {
             return "1. 변경사항 commit/stash -> 2. Fetch -> 3. \(ahead > 0 ? "Rebase" : "Pull") -> 4. 테스트 후 Push"
         }

@@ -16,6 +16,7 @@ from pas_automation.integrations.git_repos import (
     git,
     owner_repo,
     recent_commits,
+    is_protected_workflow_branch,
     status_porcelain,
 )
 from pas_automation.integrations.jira import JiraClient
@@ -237,6 +238,8 @@ def evening_checklist(config: AppConfig) -> str:
             checks.append(f"미푸시 커밋 {ahead}개: push 또는 PR 상태 확인")
         if behind:
             checks.append(f"원격보다 behind {behind}: 다음 작업 전 최신화 필요")
+        if is_protected_workflow_branch(branch):
+            checks.append("기준 브랜치에서 작업 중: Jira 키 작업 브랜치로 전환 필요")
         if not ISSUE_KEY_PATTERN.search(branch.upper()):
             checks.append("브랜치명에 Jira 키 없음")
         if checks:

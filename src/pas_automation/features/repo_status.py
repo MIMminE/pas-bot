@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pas_automation.config import AppConfig
-from pas_automation.integrations.git_repos import ahead_behind, configured_repositories, snapshot_repo, status_porcelain
+from pas_automation.integrations.git_repos import ahead_behind, configured_repositories, has_issue_key, is_protected_workflow_branch, snapshot_repo, status_porcelain
 from pas_automation.integrations.slack import SlackClient, context_block, divider_block, fields_block, header_block, section_block
 
 
@@ -54,9 +54,10 @@ def format_repo_status(statuses: list[RepoStatus]) -> str:
     dirty_count = sum(1 for item in statuses if item.dirty_count)
     ahead_count = sum(1 for item in statuses if item.ahead)
     behind_count = sum(1 for item in statuses if item.behind)
+    branch_policy_count = sum(1 for item in statuses if _branch_policy_attention(item))
     lines = [
         "Git repository 상태",
-        f"전체 {len(statuses)}개 | 변경 있음 {dirty_count}개 | push 필요 {ahead_count}개 | rebase/pull 확인 {behind_count}개",
+        f"전체 {len(statuses)}개 | 변경 있음 {dirty_count}개 | push 필요 {ahead_count}개 | rebase/pull 확인 {behind_count}개 | 브랜치 정책 확인 {branch_policy_count}개",
         "",
     ]
     for item in statuses:
@@ -74,7 +75,8 @@ def repo_status_blocks(statuses: list[RepoStatus]) -> list[dict]:
     dirty_count = sum(1 for item in statuses if item.dirty_count)
     ahead_count = sum(1 for item in statuses if item.ahead)
     behind_count = sum(1 for item in statuses if item.behind)
-    attention = [item for item in statuses if item.dirty_count or item.ahead or item.behind]
+    branch_policy_count = sum(1 for item in statuses if _branch_policy_attention(item))
+    attention = [item for item in statuses if item.dirty_count or item.ahead or item.behind or _branch_policy_attention(item)]
     clean_count = len(statuses) - len(attention)
 
     blocks = [
@@ -85,6 +87,7 @@ def repo_status_blocks(statuses: list[RepoStatus]) -> list[dict]:
                 f"*변경 있음*\n{dirty_count}개",
                 f"*push 필요*\n{ahead_count}개",
                 f"*rebase/pull 확인*\n{behind_count}개",
+                f"*브랜치 정책 확인*\n{branch_policy_count}개",
             ]
         ),
         context_block(_summary_context(clean_count, len(attention))),
@@ -117,6 +120,8 @@ def _repo_status_card(item: RepoStatus) -> dict:
         fields.append(f"*push 필요*\nahead {item.ahead}")
     if item.behind:
         fields.append(f"*업데이트 필요*\nbehind {item.behind}")
+    if _branch_policy_attention(item):
+        fields.append(f"*브랜치 정책*\n{_branch_policy_label(item)}")
 
     return {
         "type": "section",
@@ -135,7 +140,21 @@ def _status_label(item: RepoStatus) -> str:
         labels.append(f"pull/rebase -{item.behind}")
     if item.ahead is None or item.behind is None:
         labels.append("upstream 없음")
+    if _branch_policy_attention(item):
+        labels.append(_branch_policy_label(item))
     return ", ".join(labels) if labels else "clean"
+
+
+def _branch_policy_attention(item: RepoStatus) -> bool:
+    return is_protected_workflow_branch(item.branch) or not has_issue_key(item.branch)
+
+
+def _branch_policy_label(item: RepoStatus) -> str:
+    if is_protected_workflow_branch(item.branch):
+        return "기준 브랜치 직접 push 제한"
+    if not has_issue_key(item.branch):
+        return "Jira 키 브랜치 필요"
+    return "정상"
 
 
 def _summary_context(clean_count: int, attention_count: int) -> str:

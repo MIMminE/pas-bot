@@ -5,6 +5,9 @@ from pathlib import Path
 import re
 import subprocess
 
+ISSUE_KEY_PATTERN = re.compile(r"[A-Z][A-Z0-9]+-\d+")
+PROTECTED_WORKFLOW_BRANCHES = {"main", "master", "dev", "develop", "development"}
+
 
 @dataclass(frozen=True)
 class RepoSnapshot:
@@ -97,6 +100,38 @@ def require_clean_worktree(repo: Path, *, action: str) -> None:
     )
 
 
+def is_protected_workflow_branch(branch: str) -> bool:
+    return branch.lower() in PROTECTED_WORKFLOW_BRANCHES
+
+
+def has_issue_key(branch: str) -> bool:
+    return bool(ISSUE_KEY_PATTERN.search(branch.upper()))
+
+
+def require_jira_work_branch(repo: Path, *, action: str) -> None:
+    branch = current_branch(repo)
+    if is_protected_workflow_branch(branch):
+        raise RuntimeError(
+            "\n".join(
+                [
+                    f"{action} 제한: `{branch}` 브랜치에는 직접 작업/푸시하지 않습니다.",
+                    "PAS 기본 정책은 Jira 일감 키가 포함된 작업 브랜치에서 개발한 뒤 PR과 merge로 반영하는 방식입니다.",
+                    "Jira 일감에서 `브랜치 시작`을 사용하거나 dev start-issue 명령으로 작업 브랜치를 만든 뒤 다시 실행해 주세요.",
+                ]
+            )
+        )
+    if not has_issue_key(branch):
+        raise RuntimeError(
+            "\n".join(
+                [
+                    f"{action} 제한: 현재 브랜치 `{branch}`에 Jira 이슈 키가 없습니다.",
+                    "브랜치 이름에는 LMS-123 같은 Jira 키가 포함되어야 합니다.",
+                    "예: feature/LMS-123-summary",
+                ]
+            )
+        )
+
+
 def ahead_behind(repo: Path) -> tuple[int | None, int | None]:
     try:
         upstream = git(repo, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
@@ -124,6 +159,7 @@ def pull_rebase(repo: Path) -> str:
 
 
 def push(repo: Path) -> str:
+    require_jira_work_branch(repo, action="Push")
     return git(repo, "push")
 
 

@@ -135,6 +135,15 @@ struct LocalRepositoryOption: Identifiable, Hashable, Sendable {
     var needsRebase: Bool {
         (behind ?? 0) > 0 && (ahead ?? 0) > 0
     }
+
+    var isProtectedWorkflowBranch: Bool {
+        ["main", "master", "dev", "develop", "development"].contains(branch.lowercased())
+    }
+
+    var isJiraWorkBranch: Bool {
+        branch.range(of: #"[A-Z][A-Z0-9]+-\d+"#, options: [.regularExpression, .caseInsensitive]) != nil
+            && !isProtectedWorkflowBranch
+    }
 }
 
 struct GitHubRemoteRepositoryOption: Identifiable, Hashable, Sendable {
