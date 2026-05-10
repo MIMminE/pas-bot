@@ -156,38 +156,30 @@ final class PASRunner: ObservableObject {
         }
     }
 
-    func loadSlackChannels(settings: PASSettings, completion: @escaping ([SlackChannel]) -> Void) {
+    func loadSlackChannels(settings: PASSettings) async -> [SlackChannel] {
         saveSettings(settings)
         status = "Slack 채널 목록을 불러오는 중..."
-        Task { [weak self] in
-            let result = await Self.executeDetached(["slack", "channels", "--format", "tsv"])
-            guard let self else { return }
-            self.lastOutput = result.output
-            self.status = result.succeeded ? "Slack 채널 목록을 불러왔습니다" : "Slack 채널 조회 실패"
-            if !result.succeeded {
-                self.openOutputWindow(title: "Slack 채널 조회 오류", output: result.output.isEmpty ? result.summary : result.output)
-                completion([])
-                return
-            }
-            completion(Self.parseSlackChannels(result.output))
+        let result = await Self.executeDetached(["slack", "channels", "--format", "tsv"])
+        lastOutput = result.output
+        status = result.succeeded ? "Slack 채널 목록을 불러왔습니다" : "Slack 채널 조회 실패"
+        if !result.succeeded {
+            openOutputWindow(title: "Slack 채널 조회 오류", output: result.output.isEmpty ? result.summary : result.output)
+            return []
         }
+        return Self.parseSlackChannels(result.output)
     }
 
-    func loadGitHubRepositories(settings: PASSettings, completion: @escaping ([GitHubRepositoryOption]) -> Void) {
+    func loadGitHubRepositories(settings: PASSettings) async -> [GitHubRepositoryOption] {
         saveSettings(settings)
         status = "GitHub repository 목록을 불러오는 중..."
-        Task { [weak self] in
-            let result = await Self.executeDetached(["repo", "remote-list", "--format", "tsv"])
-            guard let self else { return }
-            self.lastOutput = result.output
-            self.status = result.succeeded ? "GitHub repository 목록을 불러왔습니다" : "GitHub repository 조회 실패"
-            if !result.succeeded {
-                self.openOutputWindow(title: "GitHub repository 조회 오류", output: result.output.isEmpty ? result.summary : result.output)
-                completion([])
-                return
-            }
-            completion(Self.parseGitHubRepositories(result.output))
+        let result = await Self.executeDetached(["repo", "remote-list", "--format", "tsv"])
+        lastOutput = result.output
+        status = result.succeeded ? "GitHub repository 목록을 불러왔습니다" : "GitHub repository 조회 실패"
+        if !result.succeeded {
+            openOutputWindow(title: "GitHub repository 조회 오류", output: result.output.isEmpty ? result.summary : result.output)
+            return []
         }
+        return Self.parseGitHubRepositories(result.output)
     }
 
     private nonisolated static func parseSlackChannels(_ output: String) -> [SlackChannel] {
