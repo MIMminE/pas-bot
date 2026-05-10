@@ -6,6 +6,8 @@ struct SetupView: View {
     @State private var settings: PASSettings
     @State private var slackChannels: [SlackChannel] = []
     @State private var githubRepositories: [GitHubRepositoryOption] = []
+    @State private var isLoadingSlackChannels = false
+    @State private var isLoadingGitHubRepositories = false
 
     init(runner: PASRunner) {
         self.runner = runner
@@ -92,10 +94,22 @@ struct SetupView: View {
                     )
 
                     HStack {
-                        Button("채널 목록 불러오기") {
-                            slackChannels = runner.loadSlackChannels(settings: settings)
+                        Button(isLoadingSlackChannels ? "불러오는 중..." : "채널 목록 불러오기") {
+                            isLoadingSlackChannels = true
+                            Task {
+                                slackChannels = await runner.loadSlackChannels(settings: settings)
+                                isLoadingSlackChannels = false
+                            }
                         }
-                        .disabled(runner.isRunning || settings.slackBotToken.isEmpty)
+                        .disabled(runner.isRunning || settings.slackBotToken.isEmpty || isLoadingSlackChannels)
+
+                        if isLoadingSlackChannels {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Slack에서 채널을 확인하는 중")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
 
                         Text("Slack App 권한: chat:write, channels:read, groups:read")
                             .font(.caption)
@@ -189,10 +203,22 @@ struct SetupView: View {
                 )
 
                 HStack {
-                    Button("GitHub 레포 목록 불러오기") {
-                        githubRepositories = runner.loadGitHubRepositories(settings: settings)
+                    Button(isLoadingGitHubRepositories ? "불러오는 중..." : "GitHub 레포 목록 불러오기") {
+                        isLoadingGitHubRepositories = true
+                        Task {
+                            githubRepositories = await runner.loadGitHubRepositories(settings: settings)
+                            isLoadingGitHubRepositories = false
+                        }
                     }
-                    .disabled(runner.isRunning || settings.githubToken.isEmpty)
+                    .disabled(runner.isRunning || settings.githubToken.isEmpty || isLoadingGitHubRepositories)
+
+                    if isLoadingGitHubRepositories {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("GitHub에서 repository를 확인하는 중")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
 
                     Text("선택한 레포 \(settings.githubRepositoryIDs.count)개")
                         .font(.caption)

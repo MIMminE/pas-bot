@@ -156,9 +156,15 @@ final class PASRunner: ObservableObject {
         }
     }
 
-    func loadSlackChannels(settings: PASSettings) -> [SlackChannel] {
+    func loadSlackChannels(settings: PASSettings) async -> [SlackChannel] {
         saveSettings(settings)
-        let result = execute(["slack", "channels", "--format", "tsv"])
+        status = "Slack 채널 목록을 불러오는 중..."
+        let result = await Task.detached { [weak self] in
+            guard let self else {
+                return (succeeded: false, output: "", summary: "PAS 실행기가 종료되었습니다.")
+            }
+            return self.execute(["slack", "channels", "--format", "tsv"])
+        }.value
         lastOutput = result.output
         status = result.succeeded ? "Slack 채널 목록을 불러왔습니다" : "Slack 채널 조회 실패"
         if !result.succeeded {
@@ -175,9 +181,15 @@ final class PASRunner: ObservableObject {
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    func loadGitHubRepositories(settings: PASSettings) -> [GitHubRepositoryOption] {
+    func loadGitHubRepositories(settings: PASSettings) async -> [GitHubRepositoryOption] {
         saveSettings(settings)
-        let result = execute(["repo", "remote-list", "--format", "tsv"])
+        status = "GitHub repository 목록을 불러오는 중..."
+        let result = await Task.detached { [weak self] in
+            guard let self else {
+                return (succeeded: false, output: "", summary: "PAS 실행기가 종료되었습니다.")
+            }
+            return self.execute(["repo", "remote-list", "--format", "tsv"])
+        }.value
         lastOutput = result.output
         status = result.succeeded ? "GitHub repository 목록을 불러왔습니다" : "GitHub repository 조회 실패"
         if !result.succeeded {
