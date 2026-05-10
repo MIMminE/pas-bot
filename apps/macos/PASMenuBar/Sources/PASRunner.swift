@@ -8,24 +8,21 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
     @Published var isRunning = false
     @Published var status = "대기 중"
     @Published var lastOutput = ""
+    @Published var isHandlingDeepLink = false
 
     private var setupWindow: NSWindow?
     private var workWindow: NSWindow?
     private var outputWindow: NSWindow?
     private var issueLinkWindow: NSWindow?
     private var reportAgentWindow: NSWindow?
+    private var shouldOpenSetupOnLaunch = true
 
     override init() {
         super.init()
-        NSAppleEventManager.shared().setEventHandler(
-            self,
-            andSelector: #selector(handleGetURLEvent(_:withReplyEvent:)),
-            forEventClass: AEEventClass(kInternetEventClass),
-            andEventID: AEEventID(kAEGetURL)
-        )
         try? Self.prepareSupportFiles()
         DispatchQueue.main.async { [weak self] in
-            self?.openSetupWindow()
+            guard let self, self.shouldOpenSetupOnLaunch else { return }
+            self.openSetupWindow()
         }
     }
 
@@ -87,19 +84,12 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
         NSWorkspace.shared.open(url)
     }
 
-    @objc private nonisolated func handleGetURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
-        guard let value = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
-              let url = URL(string: value) else {
-            return
-        }
-        Task { @MainActor in
-            self.handleDeepLink(url)
-        }
-    }
-
     func handleDeepLink(_ url: URL) {
+        shouldOpenSetupOnLaunch = false
+        isHandlingDeepLink = true
         guard url.scheme == "pas" else {
             status = "지원하지 않는 PAS 링크입니다"
+            isHandlingDeepLink = false
             return
         }
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
@@ -110,10 +100,13 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
             let summary = Self.queryValue("summary", in: items)
             guard !issue.isEmpty, !repo.isEmpty else {
                 status = "브랜치 생성 링크에 필요한 값이 없습니다"
+                isHandlingDeepLink = false
+                openOutputWindow(title: "PAS 링크 오류", output: "브랜치 생성 링크에 issue 또는 repo 값이 없습니다.\n\n받은 링크: \(url.absoluteString)")
                 return
             }
             Task {
                 await createBranch(issue: issue, repo: repo, summary: summary)
+                isHandlingDeepLink = false
             }
             return
         }
@@ -123,13 +116,19 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
             let summary = Self.queryValue("summary", in: items)
             guard !issue.isEmpty else {
                 status = "Jira repo 연결 링크에 issue 값이 없습니다"
+                isHandlingDeepLink = false
+                openOutputWindow(title: "PAS 링크 오류", output: "Jira repository 연결 링크에 issue 값이 없습니다.\n\n받은 링크: \(url.absoluteString)")
                 return
             }
             openIssueRepositoryLinkWindow(issue: issue, summary: summary)
+            status = "\(issue) repository 연결 선택 대기 중"
+            isHandlingDeepLink = false
             return
         }
 
         status = "지원하지 않는 PAS 링크입니다"
+        isHandlingDeepLink = false
+        openOutputWindow(title: "PAS 링크 오류", output: "지원하지 않는 PAS 링크입니다.\n\n받은 링크: \(url.absoluteString)")
     }
 
     func copyLastOutput() {

@@ -20,10 +20,32 @@ final class PASAppDelegate: NSObject, NSApplicationDelegate {
     private var cancellables: Set<AnyCancellable> = []
     private var pendingSingleClick: DispatchWorkItem?
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        installDeepLinkHandler()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
         installStatusItem()
         bindRunner()
+    }
+
+    private func installDeepLinkHandler() {
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleGetURLEvent(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
+    }
+
+    @objc private func handleGetURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
+        guard let value = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+              let url = URL(string: value) else {
+            runner.openLastOutputWindow()
+            return
+        }
+        runner.handleDeepLink(url)
     }
 
     private func installStatusItem() {
