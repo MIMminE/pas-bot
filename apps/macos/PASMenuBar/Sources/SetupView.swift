@@ -228,7 +228,7 @@ struct SetupView: View {
                 }
 
                 if githubRepositories.isEmpty {
-                    Text(settings.githubRepositoryIDs.isEmpty ? "아직 선택한 원격 repository가 없습니다." : "저장된 원격 repository: \(settings.githubRepositoryIDs.sorted().joined(separator: \", \"))")
+                    Text(settings.githubRepositoryIDs.isEmpty ? "아직 선택한 원격 repository가 없습니다." : "저장된 원격 repository: \(settings.githubRepositoryIDs.sorted().joined(separator: ", "))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
