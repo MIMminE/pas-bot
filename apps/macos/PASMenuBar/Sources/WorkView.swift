@@ -152,7 +152,7 @@ struct WorkView: View {
         DashboardPanel(title: "빠른 실행", systemImage: "wand.and.stars") {
             HStack(spacing: 10) {
                 DashboardButton(title: isLoading ? "불러오는 중" : "새로고침", systemImage: "arrow.clockwise") {
-                    Task { await reload(showNotice: true, fetchRemote: true) }
+                    Task { await reload(notify: true, fetchRemote: true) }
                 }
                 .disabled(isLoading || runner.isRunning)
 
@@ -411,7 +411,7 @@ struct WorkView: View {
         }
     }
 
-    private func reload(showNotice: Bool = false, fetchRemote: Bool = false) async {
+    private func reload(notify: Bool = false, fetchRemote: Bool = false) async {
         isLoading = true
         if fetchRemote {
             repositories = await runner.refreshManagedRepositories(fetchRemote: true)
@@ -419,7 +419,7 @@ struct WorkView: View {
             repositories = await runner.loadManagedRepositories()
         }
         isLoading = false
-        if showNotice {
+        if notify {
             showNotice(title: "상태 새로고침", message: "관리 중인 repository \(repositories.count)개의 상태를 다시 불러왔습니다.", succeeded: true)
         }
     }
