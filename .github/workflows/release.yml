@@ -58,6 +58,7 @@ jobs:
           cp dist/pas "$RESOURCES/bin/pas"
           cp config.example.toml "$RESOURCES/config.example.toml"
           cp assignees.example.json "$RESOURCES/assignees.example.json"
+          cp report-agent.example.md "$RESOURCES/report-agent.example.md"
           python3 scripts/generate_macos_icon.py "$RESOURCES/AppIcon.iconset"
           iconutil -c icns "$RESOURCES/AppIcon.iconset" -o "$RESOURCES/AppIcon.icns"
           rm -rf "$RESOURCES/AppIcon.iconset"

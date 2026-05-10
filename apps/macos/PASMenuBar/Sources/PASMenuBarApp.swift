@@ -29,6 +29,11 @@ struct PASMenuBarApp: App {
                 }
                 .disabled(runner.isRunning)
 
+                Button("일감-레포 연결 보기") {
+                    runner.run(["jira", "repo-links"])
+                }
+                .disabled(runner.isRunning)
+
                 Divider()
 
                 Button("Git 상태 전송") {
@@ -87,6 +92,10 @@ struct PASMenuBarApp: App {
 
                 Button("작업 콘솔 열기") {
                     runner.openWorkWindow()
+                }
+
+                Button("보고서 작성 규칙 편집") {
+                    runner.openReportAgentEditor()
                 }
 
                 Button("설정 열기") {

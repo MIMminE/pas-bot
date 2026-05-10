@@ -12,7 +12,9 @@ from pas_automation.integrations.git_repos import (
     changed_files,
     configured_repositories,
     current_branch,
+    fetch,
     git,
+    pull_ff_only,
     recent_commits,
     require_clean_worktree,
     staged_files,
@@ -72,7 +74,15 @@ def branch_name(issue_key: str, summary: str, *, prefix: str = "feature") -> str
     return f"{prefix}/{issue_key.upper()}-{_slug(summary)}"
 
 
-def create_branch(config: AppConfig, repo_path: str, issue_key: str, summary: str, *, prefix: str = "feature") -> str:
+def create_branch(
+    config: AppConfig,
+    repo_path: str,
+    issue_key: str,
+    summary: str,
+    *,
+    prefix: str = "feature",
+    base_branch: str = "dev",
+) -> str:
     _ensure_dev_tools(config)
     repo = Path(repo_path).expanduser().resolve()
     managed = {item.expanduser().resolve() for item in configured_repositories(config)}
@@ -86,12 +96,69 @@ def create_branch(config: AppConfig, repo_path: str, issue_key: str, summary: st
     existed = _local_branch_exists(repo, name)
     if existed:
         output = git(repo, "checkout", name)
-    else:
-        output = git(repo, "checkout", "-b", name)
-    action = "이동" if existed else "생성"
+        details = output.strip()
+        suffix = f"\n{details}" if details else ""
+        return f"{repo.name}: 기존 작업 브랜치로 이동\n- 브랜치: {name}{suffix}"
+
+    base = _prepare_latest_base_branch(repo, base_branch=base_branch)
+    output = git(repo, "checkout", "-b", name)
     details = output.strip()
     suffix = f"\n{details}" if details else ""
-    return f"{repo.name}: {name} 브랜치 {action} 완료{suffix}"
+    return "\n".join(
+        [
+            f"{repo.name}: Jira 작업 브랜치 생성 완료",
+            f"- 기준 브랜치: {base}",
+            f"- 작업 브랜치: {name}",
+            f"- Jira 키: {issue_key.upper()}",
+        ]
+    ) + suffix
+
+
+def _prepare_latest_base_branch(repo: Path, *, base_branch: str) -> str:
+    fetch(repo)
+    candidates = _base_branch_candidates(base_branch)
+    for candidate in candidates:
+        remote = f"origin/{candidate}"
+        if _local_branch_exists(repo, candidate):
+            git(repo, "checkout", candidate)
+            if _remote_branch_exists(repo, remote):
+                git(repo, "merge", "--ff-only", remote)
+            else:
+                pull_ff_only(repo)
+            return candidate
+        if _remote_branch_exists(repo, remote):
+            git(repo, "checkout", "-b", candidate, "--track", remote)
+            pull_ff_only(repo)
+            return candidate
+    raise RuntimeError(
+        "\n".join(
+            [
+                "작업 브랜치를 시작할 기준 브랜치를 찾지 못했습니다.",
+                f"확인한 후보: {', '.join(candidates)}",
+                "레포에 dev/develop 계열 브랜치가 있는지 확인해 주세요.",
+            ]
+        )
+    )
+
+
+def _base_branch_candidates(base_branch: str) -> list[str]:
+    values = [base_branch.strip(), "dev", "develop", "development", "main", "master"]
+    seen: set[str] = set()
+    candidates: list[str] = []
+    for item in values:
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        candidates.append(item)
+    return candidates
+
+
+def _remote_branch_exists(repo: Path, name: str) -> bool:
+    try:
+        git(repo, "show-ref", "--verify", "--quiet", f"refs/remotes/{name}")
+    except RuntimeError:
+        return False
+    return True
 
 
 def commit_message(config: AppConfig, repo_path: str | None, issue_key: str | None) -> str:

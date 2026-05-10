@@ -12,6 +12,8 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
     private var setupWindow: NSWindow?
     private var workWindow: NSWindow?
     private var outputWindow: NSWindow?
+    private var issueLinkWindow: NSWindow?
+    private var reportAgentWindow: NSWindow?
 
     override init() {
         super.init()
@@ -55,6 +57,31 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
         NSWorkspace.shared.open(directory)
     }
 
+    func openReportAgentEditor() {
+        try? Self.prepareSupportFiles()
+        NSApplication.shared.setActivationPolicy(.regular)
+        if let reportAgentWindow {
+            reportAgentWindow.makeKeyAndOrderFront(nil)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 680),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "보고서 작성 규칙"
+        window.center()
+        window.contentView = NSHostingView(rootView: ReportAgentEditorView(runner: self))
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        reportAgentWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
     func openExternalURL(_ value: String) {
         guard let url = URL(string: value) else { return }
         NSWorkspace.shared.open(url)
@@ -71,21 +98,38 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
     }
 
     func handleDeepLink(_ url: URL) {
-        guard url.scheme == "pas", url.host == "branch", url.path == "/create" else {
+        guard url.scheme == "pas" else {
             status = "지원하지 않는 PAS 링크입니다"
             return
         }
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-        let issue = Self.queryValue("issue", in: items)
-        let repo = Self.queryValue("repo", in: items)
-        let summary = Self.queryValue("summary", in: items)
-        guard !issue.isEmpty, !repo.isEmpty else {
-            status = "브랜치 생성 링크에 필요한 값이 없습니다"
+
+        if url.host == "branch", url.path == "/create" {
+            let issue = Self.queryValue("issue", in: items)
+            let repo = Self.queryValue("repo", in: items)
+            let summary = Self.queryValue("summary", in: items)
+            guard !issue.isEmpty, !repo.isEmpty else {
+                status = "브랜치 생성 링크에 필요한 값이 없습니다"
+                return
+            }
+            Task {
+                await createBranch(issue: issue, repo: repo, summary: summary)
+            }
             return
         }
-        Task {
-            await createBranch(issue: issue, repo: repo, summary: summary)
+
+        if url.host == "jira", url.path == "/link" {
+            let issue = Self.queryValue("issue", in: items)
+            let summary = Self.queryValue("summary", in: items)
+            guard !issue.isEmpty else {
+                status = "Jira repo 연결 링크에 issue 값이 없습니다"
+                return
+            }
+            openIssueRepositoryLinkWindow(issue: issue, summary: summary)
+            return
         }
+
+        status = "지원하지 않는 PAS 링크입니다"
     }
 
     func copyLastOutput() {
@@ -163,12 +207,46 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
+    func openIssueRepositoryLinkWindow(issue: String, summary: String) {
+        NSApplication.shared.setActivationPolicy(.regular)
+        if let issueLinkWindow {
+            issueLinkWindow.title = "\(issue) repository 연결"
+            issueLinkWindow.contentView = NSHostingView(rootView: IssueRepositoryLinkView(runner: self, issue: issue, summary: summary))
+            issueLinkWindow.makeKeyAndOrderFront(nil)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 560),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "\(issue) repository 연결"
+        window.center()
+        window.contentView = NSHostingView(rootView: IssueRepositoryLinkView(runner: self, issue: issue, summary: summary))
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        issueLinkWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
     func closeSetupWindow() {
         setupWindow?.close()
     }
 
     func closeWorkWindow() {
         workWindow?.close()
+    }
+
+    func closeIssueRepositoryLinkWindow() {
+        issueLinkWindow?.close()
+    }
+
+    func closeReportAgentWindow() {
+        reportAgentWindow?.close()
     }
 
     nonisolated func windowWillClose(_ notification: Notification) {
@@ -180,8 +258,36 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
                 self.setupWindow = nil
             } else if window === self.outputWindow {
                 self.outputWindow = nil
+            } else if window === self.issueLinkWindow {
+                self.issueLinkWindow = nil
+            } else if window === self.reportAgentWindow {
+                self.reportAgentWindow = nil
             }
             self.restoreMenuBarModeIfPossible()
+        }
+    }
+
+    func loadReportAgentRules() -> String {
+        do {
+            try Self.prepareSupportFiles()
+            return try String(contentsOf: Self.reportAgentURL(), encoding: .utf8)
+        } catch {
+            let message = "보고서 작성 규칙을 불러오지 못했습니다: \(error.localizedDescription)"
+            status = message
+            return message
+        }
+    }
+
+    func saveReportAgentRules(_ text: String) -> PASCommandResult {
+        do {
+            try Self.prepareSupportFiles()
+            try text.write(to: Self.reportAgentURL(), atomically: true, encoding: .utf8)
+            status = "보고서 작성 규칙을 저장했습니다"
+            return PASCommandResult(succeeded: true, output: "보고서 작성 규칙을 저장했습니다.", summary: "저장 완료")
+        } catch {
+            let message = "보고서 작성 규칙 저장 실패: \(error.localizedDescription)"
+            status = message
+            return PASCommandResult(succeeded: false, output: message, summary: message)
         }
     }
 
@@ -354,7 +460,7 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
         guard !isRunning else { return }
         isRunning = true
         status = "\(issue) 브랜치 생성 중..."
-        let result = await Self.executeDetached(["dev", "create-branch", "--repo", repo, "--issue-key", issue, "--summary", summary])
+        let result = await Self.executeDetached(["dev", "create-branch", "--repo", repo, "--issue-key", issue, "--summary", summary, "--base-branch", "dev"])
         lastOutput = result.output
         status = result.succeeded ? "\(issue) 브랜치 준비 완료" : "\(issue) 브랜치 생성 실패"
         isRunning = false
@@ -365,6 +471,35 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
         if result.succeeded {
             openWorkWindow()
         }
+    }
+
+    func linkIssueRepository(issue: String, repo: String, summary: String) async -> PASCommandResult {
+        guard !isRunning else {
+            return PASCommandResult(succeeded: false, output: "", summary: "이미 실행 중인 작업이 있습니다.")
+        }
+        isRunning = true
+        status = "\(issue) repository 연결 중..."
+        let result = await Self.executeDetached(["jira", "link-repo", issue, "--repo", repo, "--summary", summary])
+        lastOutput = result.output
+        status = result.succeeded ? "\(issue) repository 연결 완료" : "\(issue) repository 연결 실패"
+        isRunning = false
+        if result.succeeded {
+            openWorkWindow()
+        } else {
+            openOutputWindow(title: "Jira repository 연결 오류", output: result.output.isEmpty ? result.summary : result.output)
+        }
+        return PASCommandResult(succeeded: result.succeeded, output: result.output, summary: result.summary)
+    }
+
+    func loadIssueRepositoryLinks() async -> String {
+        status = "Jira repository 연결 목록을 불러오는 중..."
+        let result = await Self.executeDetached(["jira", "repo-links"])
+        lastOutput = result.output
+        status = result.succeeded ? "Jira repository 연결 목록을 불러왔습니다" : "Jira repository 연결 목록 조회 실패"
+        if !result.succeeded {
+            openOutputWindow(title: "Jira repository 연결 목록 오류", output: result.output.isEmpty ? result.summary : result.output)
+        }
+        return result.output.isEmpty ? result.summary : result.output
     }
 
     func loadTodayCommits(path: String) async -> String {
@@ -389,9 +524,25 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
         return result.output.isEmpty ? result.summary : result.output
     }
 
-    func previewDailyReport() async -> String {
+    func previewDailyReport(notes: String = "") async -> String {
         status = "오늘 작업 보고서를 만드는 중..."
-        let result = await Self.executeDetached(["repo", "report", "--snapshot", "morning", "--dry-run"])
+        var arguments = ["repo", "report", "--snapshot", "morning", "--dry-run", "--report-agent-file", Self.reportAgentURL().path]
+        var notesURL: URL?
+        if !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            notesURL = Self.supportDirectory().appendingPathComponent("report-notes-\(UUID().uuidString).txt")
+            do {
+                try notes.write(to: notesURL!, atomically: true, encoding: .utf8)
+                arguments.append(contentsOf: ["--notes-file", notesURL!.path])
+            } catch {
+                let message = "수동 메모 임시 파일 저장 실패: \(error.localizedDescription)"
+                status = message
+                return message
+            }
+        }
+        let result = await Self.executeDetached(arguments)
+        if let notesURL {
+            try? FileManager.default.removeItem(at: notesURL)
+        }
         lastOutput = result.output
         status = result.succeeded ? "오늘 작업 보고서를 만들었습니다" : "오늘 작업 보고서 생성 실패"
         if !result.succeeded {
@@ -524,7 +675,7 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
     }
 
     private func restoreMenuBarModeIfPossible() {
-        guard workWindow == nil, setupWindow == nil, outputWindow == nil else { return }
+        guard workWindow == nil, setupWindow == nil, outputWindow == nil, issueLinkWindow == nil, reportAgentWindow == nil else { return }
         NSApplication.shared.setActivationPolicy(.accessory)
     }
 
@@ -563,6 +714,8 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
 
         copyExampleIfNeeded(resourcePath: "config.example.toml", to: configURL())
         copyExampleIfNeeded(resourcePath: "assignees.example.json", to: assigneesURL())
+        copyExampleIfNeeded(resourcePath: "report-agent.example.md", to: reportAgentURL())
+        createReportAgentIfNeeded()
         createStateIfNeeded()
     }
 
@@ -595,6 +748,10 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
         supportDirectory().appendingPathComponent("assignees.json")
     }
 
+    private nonisolated static func reportAgentURL() -> URL {
+        supportDirectory().appendingPathComponent("report-agent.md")
+    }
+
     private nonisolated static func logsDirectory() -> URL {
         supportDirectory().appendingPathComponent("logs", isDirectory: true)
     }
@@ -615,22 +772,41 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
           "version": 1,
           "created_at": "\(ISO8601DateFormatter().string(from: Date()))",
           "setup_completed": false,
-          "last_runs": {}
+          "last_runs": {},
+          "issue_repositories": {}
         }
         """
         try? payload.write(to: destination, atomically: true, encoding: .utf8)
     }
 
-    private func markSetupCompleted() throws {
+    private nonisolated static func createReportAgentIfNeeded() {
+        let destination = reportAgentURL()
+        guard !FileManager.default.fileExists(atPath: destination.path) else { return }
         let payload = """
-        {
-          "version": 1,
-          "updated_at": "\(ISO8601DateFormatter().string(from: Date()))",
-          "setup_completed": true,
-          "last_runs": {}
-        }
+        # PAS Report Agent
+
+        - Slack에 바로 보낼 수 있는 한국어 일일 보고서로 작성한다.
+        - 오늘 한 일, 주요 변경점, 확인 필요, 내일 이어갈 일을 포함한다.
+        - 과장하지 않고 확인된 사실과 추정을 구분한다.
+        - 수동 메모는 Git 근거와 함께 우선 반영한다.
         """
-        try payload.write(to: Self.stateURL(), atomically: true, encoding: .utf8)
+        try? payload.write(to: destination, atomically: true, encoding: .utf8)
+    }
+
+    private func markSetupCompleted() throws {
+        let url = Self.stateURL()
+        var payload: [String: Any] = [:]
+        if let data = try? Data(contentsOf: url),
+           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            payload = existing
+        }
+        payload["version"] = payload["version"] ?? 1
+        payload["updated_at"] = ISO8601DateFormatter().string(from: Date())
+        payload["setup_completed"] = true
+        payload["last_runs"] = payload["last_runs"] ?? [:]
+        payload["issue_repositories"] = payload["issue_repositories"] ?? [:]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: url, options: .atomic)
     }
 
     private func readConfigValue(section: String, key: String) -> String {
@@ -1027,6 +1203,334 @@ struct OutputView: View {
         }
         .padding(16)
         .frame(minWidth: 620, minHeight: 420)
+    }
+}
+
+struct ReportAgentEditorView: View {
+    @ObservedObject var runner: PASRunner
+
+    @State private var rules = ""
+    @State private var message = ""
+    @State private var lastSavedRules = ""
+
+    private var hasChanges: Bool {
+        rules != lastSavedRules
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.accentColor.opacity(0.16))
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                }
+                .frame(width: 50, height: 50)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("보고서 작성 규칙")
+                        .font(.title3)
+                        .bold()
+                    Text("오늘 작업 보고서를 AI가 어떤 형식과 말투로 정리할지 정합니다.")
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if hasChanges {
+                    Text("저장 안 됨")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.orange.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 7))
+                }
+            }
+
+            HStack(alignment: .top, spacing: 14) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Markdown 규칙")
+                        .font(.headline)
+                    TextEditor(text: $rules)
+                        .font(.system(.body, design: .monospaced))
+                        .scrollContentBackground(.hidden)
+                        .padding(10)
+                        .background(Color(nsColor: .textBackgroundColor).opacity(0.9))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color(nsColor: .separatorColor).opacity(0.75))
+                        )
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("작성 가이드")
+                        .font(.headline)
+                    GuideHint(title: "섹션", detail: "오늘 한 일, 주요 변경점, 확인 필요, 내일 이어갈 일처럼 원하는 순서를 적습니다.")
+                    GuideHint(title: "말투", detail: "간결/상세/관리자용, 명사형 선호 같은 톤을 지정합니다.")
+                    GuideHint(title: "금지사항", detail: "모르는 내용을 단정하지 않기, 민감정보 제외 같은 규칙을 넣습니다.")
+                    GuideHint(title: "우선순위", detail: "수동 메모를 커밋보다 우선할지, Git 근거만 사실로 볼지 정합니다.")
+                    Spacer()
+                }
+                .frame(width: 220)
+            }
+
+            if !message.isEmpty {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(message.contains("실패") ? .red : .secondary)
+            }
+
+            HStack {
+                Button("기본 예시로 되돌리기") {
+                    rules = Self.defaultRules
+                }
+
+                Spacer()
+
+                Button("닫기") {
+                    runner.closeReportAgentWindow()
+                }
+
+                Button("저장") {
+                    let result = runner.saveReportAgentRules(rules)
+                    message = result.displayText
+                    if result.succeeded {
+                        lastSavedRules = rules
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(rules.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !hasChanges)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 720, minHeight: 620)
+        .task {
+            let loaded = runner.loadReportAgentRules()
+            rules = loaded
+            lastSavedRules = loaded
+        }
+    }
+
+    private static let defaultRules = """
+    # PAS Report Agent
+
+    ## 목표
+
+    - Slack에 바로 보낼 수 있는 한국어 일일 업무 보고서를 작성한다.
+    - Git 커밋, 브랜치, 동기화 상태를 근거로 삼고, 사용자가 직접 작성한 메모를 함께 반영한다.
+    - 확인된 사실과 추정은 구분한다.
+
+    ## 출력 형식
+
+    1. 오늘 한 일
+    2. 주요 변경점
+    3. 확인 필요
+    4. 내일 이어갈 일
+
+    ## 말투
+
+    - 간결하게 쓴다.
+    - 과장하지 않는다.
+    - `했습니다`보다 명사형 또는 짧은 문장을 선호한다.
+
+    ## 금지사항
+
+    - 커밋 메시지만으로 알 수 없는 내용을 단정하지 않는다.
+    - 민감한 토큰, URL, 개인 정보는 넣지 않는다.
+    """
+}
+
+private struct GuideHint: View {
+    let title: String
+    let detail: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.subheadline)
+                .bold()
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+struct IssueRepositoryLinkView: View {
+    @ObservedObject var runner: PASRunner
+    let issue: String
+    let summary: String
+
+    @State private var repositories: [LocalRepositoryOption] = []
+    @State private var selectedPath = ""
+    @State private var isLoading = false
+    @State private var resultMessage = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.accentColor.opacity(0.16))
+                    Image(systemName: "link.badge.plus")
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                }
+                .frame(width: 50, height: 50)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(issue) repository 연결")
+                        .font(.title3)
+                        .bold()
+                    Text(summary.isEmpty ? "이 Jira 일감을 어느 로컬 repository에서 처리할지 선택합니다." : summary)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer()
+            }
+
+            HStack {
+                Button(isLoading ? "불러오는 중..." : "관리 repository 불러오기") {
+                    Task { await reload() }
+                }
+                .disabled(isLoading || runner.isRunning)
+
+                Text("선택한 연결은 state.json에 저장되고 다음 Jira 브리핑에도 표시됩니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+            }
+
+            if isLoading {
+                HStack {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("관리 중인 로컬 repository를 확인하는 중...")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+            } else if repositories.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "folder.badge.questionmark")
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Text("관리 repository가 없습니다")
+                        .font(.headline)
+                    Text("설정에서 로컬 repository root와 관리 프로젝트를 먼저 선택해 주세요.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 32)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(repositories) { repo in
+                            Button {
+                                selectedPath = repo.path
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: selectedPath == repo.path ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(selectedPath == repo.path ? Color.accentColor : Color.secondary)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        HStack {
+                                            Text(repo.name)
+                                                .font(.headline)
+                                            Text(repo.branch)
+                                                .font(.caption)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Color(nsColor: .textBackgroundColor))
+                                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                                        }
+                                        Text("\(repo.syncLabel) | \(repo.path)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                    }
+                                    Spacer()
+                                }
+                                .padding(10)
+                                .background(selectedPath == repo.path ? Color.accentColor.opacity(0.12) : Color(nsColor: .controlBackgroundColor))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+
+            if !resultMessage.isEmpty {
+                Text(resultMessage)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(nsColor: .textBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+
+            HStack {
+                Spacer()
+                Button("닫기") {
+                    runner.closeIssueRepositoryLinkWindow()
+                }
+                Button("연결 저장") {
+                    Task { await saveLink() }
+                }
+                .disabled(selectedPath.isEmpty || runner.isRunning)
+
+                Button("연결 저장 후 브랜치 시작") {
+                    Task { await saveLinkAndStartBranch() }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(selectedPath.isEmpty || runner.isRunning)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 680, minHeight: 520)
+        .task {
+            await reload()
+        }
+    }
+
+    private func reload() async {
+        isLoading = true
+        repositories = await runner.loadManagedRepositories()
+        if selectedPath.isEmpty {
+            selectedPath = repositories.first?.path ?? ""
+        }
+        isLoading = false
+    }
+
+    private func saveLink() async {
+        let result = await runner.linkIssueRepository(issue: issue, repo: selectedPath, summary: summary)
+        resultMessage = result.displayText
+        if result.succeeded {
+            runner.closeIssueRepositoryLinkWindow()
+        }
+    }
+
+    private func saveLinkAndStartBranch() async {
+        let result = await runner.linkIssueRepository(issue: issue, repo: selectedPath, summary: summary)
+        resultMessage = result.displayText
+        guard result.succeeded else { return }
+        runner.closeIssueRepositoryLinkWindow()
+        await runner.createBranch(issue: issue, repo: selectedPath, summary: summary)
     }
 }
 

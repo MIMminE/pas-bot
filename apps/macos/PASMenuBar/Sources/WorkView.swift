@@ -10,6 +10,7 @@ struct WorkView: View {
     @State private var selectedPath = ""
     @State private var lastMessage = ""
     @State private var reportDraft = ""
+    @State private var reportNotes = ""
     @State private var filter = "all"
     @State private var pendingAction: RepoAction?
     @State private var showDirtyWarning = false
@@ -208,6 +209,15 @@ struct WorkView: View {
                 }
                 .disabled(runner.isRunning)
 
+                DashboardButton(title: "일감-레포 연결", systemImage: "link") {
+                    Task {
+                        let output = await runner.loadIssueRepositoryLinks()
+                        lastMessage = output
+                        showNotice(title: "일감-레포 연결", message: output, succeeded: !runner.status.contains("실패"))
+                    }
+                }
+                .disabled(runner.isRunning)
+
                 DashboardButton(title: "오늘 개발 흐름", systemImage: "point.topleft.down.curvedto.point.bottomright.up") {
                     Task { await showTodayActivity() }
                 }
@@ -297,10 +307,15 @@ struct WorkView: View {
                 HStack {
                     DashboardButton(title: "미리보기 생성", systemImage: "doc.badge.gearshape") {
                         Task {
-                            reportDraft = await runner.previewDailyReport()
+                            reportDraft = await runner.previewDailyReport(notes: reportNotes)
                             lastMessage = reportDraft
                             showNotice(title: "보고서 미리보기", message: reportDraft, succeeded: !reportDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
+                    }
+                    .disabled(runner.isRunning)
+
+                    DashboardButton(title: "작성 규칙 편집", systemImage: "doc.plaintext") {
+                        runner.openReportAgentEditor()
                     }
                     .disabled(runner.isRunning)
 
@@ -313,6 +328,23 @@ struct WorkView: View {
                     .disabled(runner.isRunning || reportDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                     Spacer()
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("수동 메모")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextEditor(text: $reportNotes)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(minHeight: 80)
+                        .scrollContentBackground(.hidden)
+                        .padding(8)
+                        .background(Color(nsColor: .textBackgroundColor).opacity(0.72))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color(nsColor: .separatorColor).opacity(0.65))
+                        )
                 }
 
                 TextEditor(text: $reportDraft)

@@ -13,6 +13,11 @@ from pas_automation.features.daily_activity import summarize_daily_activity
 from pas_automation.features.dev_assistant import audit_jira_keys, branch_name, calendar_summary, commit_message, create_branch, dashboard, evening_check, morning_briefing, pr_draft
 from pas_automation.features.doctor import run_doctor
 from pas_automation.features.health import run_health
+from pas_automation.features.issue_repositories import (
+    format_issue_repository_links,
+    link_issue_repository,
+    unlink_issue_repository,
+)
 from pas_automation.features.jira_daily import assign_issue, format_today_items
 from pas_automation.features.repo_report import report, snapshot
 from pas_automation.features.repo_morning_sync import morning_sync
@@ -46,6 +51,17 @@ def build_parser() -> argparse.ArgumentParser:
     jira_assign.add_argument("account_id_or_email", help="담당자 accountId, 이메일 또는 alias")
     jira_assign.add_argument("--dry-run", action="store_true", help="실제 할당 없이 미리보기")
 
+    jira_link_repo = jira_sub.add_parser("link-repo", help="Jira 일감과 관리 중인 로컬 repository 연결")
+    jira_link_repo.add_argument("issue_key", help="Jira 이슈 키")
+    jira_link_repo.add_argument("--repo", required=True, help="연결할 관리 repository 경로")
+    jira_link_repo.add_argument("--summary", default="", help="일감 요약")
+
+    jira_unlink_repo = jira_sub.add_parser("unlink-repo", help="Jira 일감과 repository 연결 해제")
+    jira_unlink_repo.add_argument("issue_key", help="Jira 이슈 키")
+
+    jira_repo_links = jira_sub.add_parser("repo-links", help="Jira 일감과 repository 연결 목록")
+    jira_repo_links.add_argument("--format", choices=["text", "tsv"], default="text", help="출력 형식")
+
     slack = subparsers.add_parser("slack", help="Slack 알림")
     slack_sub = slack.add_subparsers(dest="command", required=True)
     slack_test = slack_sub.add_parser("test", help="Slack 테스트 메시지 전송")
@@ -67,6 +83,9 @@ def build_parser() -> argparse.ArgumentParser:
     repo_report.add_argument("--snapshot", default="morning", help="비교할 스냅샷 이름")
     repo_report.add_argument("--send-slack", action="store_true", help="Slack으로 실제 전송")
     repo_report.add_argument("--dry-run", action="store_true", help="외부 전송 없이 미리보기")
+    repo_report.add_argument("--notes", default="", help="AI 보고서에 함께 반영할 수동 메모")
+    repo_report.add_argument("--notes-file", help="AI 보고서에 함께 반영할 수동 메모 파일")
+    repo_report.add_argument("--report-agent-file", help="보고서 작성 규칙 Markdown 파일")
 
     repo_status = repo_sub.add_parser("status", help="로컬 repository 변경/push/pull 상태 요약")
     repo_status.add_argument("--send-slack", action="store_true", help="Slack으로 실제 전송")
@@ -128,6 +147,7 @@ def build_parser() -> argparse.ArgumentParser:
     dev_create_branch.add_argument("--issue-key", required=True, help="Jira 이슈 키")
     dev_create_branch.add_argument("--summary", default="", help="브랜치명에 사용할 작업 요약")
     dev_create_branch.add_argument("--prefix", default="feature", help="브랜치 prefix")
+    dev_create_branch.add_argument("--base-branch", default="dev", help="작업 브랜치를 시작할 기준 브랜치")
     dev_commit = dev_sub.add_parser("commit-message", help="커밋 메시지 초안 생성")
     dev_commit.add_argument("--repo", help="대상 repository 경로")
     dev_commit.add_argument("--issue-key", help="커밋 메시지에 넣을 Jira 이슈 키")
@@ -205,6 +225,20 @@ def main(argv: list[str] | None = None) -> int:
         print(assign_issue(config, args.issue_key, args.account_id_or_email, dry_run=args.dry_run))
         return 0
 
+    if args.area == "jira" and args.command == "link-repo":
+        link = link_issue_repository(config, args.issue_key, args.repo, summary=args.summary)
+        print(f"{link.issue_key}\t{link.repo_path}\t{link.repo_name}\tlinked")
+        return 0
+
+    if args.area == "jira" and args.command == "unlink-repo":
+        removed = unlink_issue_repository(args.issue_key)
+        print(f"{args.issue_key.upper()}: {'unlinked' if removed else 'not linked'}")
+        return 0
+
+    if args.area == "jira" and args.command == "repo-links":
+        print(format_issue_repository_links(output_format=args.format))
+        return 0
+
     if args.area == "slack" and args.command == "test":
         print(send_test_message(config, dry_run=args.dry_run, destination=args.destination))
         return 0
@@ -230,6 +264,9 @@ def main(argv: list[str] | None = None) -> int:
                 snapshot_name=args.snapshot,
                 send_slack=args.send_slack,
                 dry_run=args.dry_run,
+                manual_notes=args.notes,
+                manual_notes_file=args.notes_file,
+                report_agent_file=args.report_agent_file,
             )
         )
         return 0
@@ -353,7 +390,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.area == "dev" and args.command == "create-branch":
-        print(create_branch(config, args.repo, args.issue_key, args.summary, prefix=args.prefix))
+        print(create_branch(config, args.repo, args.issue_key, args.summary, prefix=args.prefix, base_branch=args.base_branch))
         return 0
 
     if args.area == "dev" and args.command == "commit-message":

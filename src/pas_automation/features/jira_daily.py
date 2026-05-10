@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from pas_automation.config import AppConfig
 from pas_automation.features.assignees import resolve_assignee
+from pas_automation.features.issue_repositories import IssueRepositoryLink, issue_repository_links
 from pas_automation.integrations.git_repos import configured_repositories, git
 from pas_automation.integrations.jira import JiraClient
 from pas_automation.integrations.slack import (
@@ -59,15 +60,16 @@ def format_today_items(
     stale_keys = _issue_keys(client.search(config.jira.stale_jql, max_results=100))
     high_keys = _issue_keys(client.search(config.jira.high_priority_jql, max_results=100))
     branch_matches = _local_branch_matches(config, issues)
+    repo_links = issue_repository_links()
 
     today = datetime.now(ZoneInfo(config.general.timezone)).date().isoformat()
-    lines = _build_text_report(config, today, issues, yesterday_keys, stale_keys, high_keys, branch_matches)
+    lines = _build_text_report(config, today, issues, yesterday_keys, stale_keys, high_keys, branch_matches, repo_links)
 
     message = "\n".join(lines)
     if send_slack:
         SlackClient(config.slack, destination="jira_daily").send(
             message,
-            blocks=_build_slack_blocks(config, today, issues, yesterday_keys, stale_keys, high_keys, branch_matches),
+            blocks=_build_slack_blocks(config, today, issues, yesterday_keys, stale_keys, high_keys, branch_matches, repo_links),
         )
     return message
 
@@ -88,6 +90,7 @@ def _build_text_report(
     stale_keys: set[str],
     high_keys: set[str],
     branch_matches: dict[str, list[LocalBranchMatch]],
+    repo_links: dict[str, IssueRepositoryLink],
 ) -> list[str]:
     subtask_count = sum(len(_subtasks(issue)) for issue in issues)
     lines = [
@@ -108,7 +111,7 @@ def _build_text_report(
         lines.append("확인할 미처리 일감이 없습니다.")
     else:
         for issue in issues:
-            lines.extend(_format_issue(config, issue, yesterday_keys, stale_keys, high_keys, branch_matches))
+            lines.extend(_format_issue(config, issue, yesterday_keys, stale_keys, high_keys, branch_matches, repo_links))
     return lines
 
 
@@ -120,6 +123,7 @@ def _build_slack_blocks(
     stale_keys: set[str],
     high_keys: set[str],
     branch_matches: dict[str, list[LocalBranchMatch]],
+    repo_links: dict[str, IssueRepositoryLink],
 ) -> list[dict[str, Any]]:
     subtask_count = sum(len(_subtasks(issue)) for issue in issues)
     blocks = [
@@ -141,7 +145,7 @@ def _build_slack_blocks(
         return blocks
 
     for issue in issues[:10]:
-        blocks.append(section_block(_format_issue_markdown(config, issue, yesterday_keys, stale_keys, high_keys, branch_matches)))
+        blocks.append(section_block(_format_issue_markdown(config, issue, yesterday_keys, stale_keys, high_keys, branch_matches, repo_links)))
         blocks.append(section_block(_format_issue_meta_markdown(issue)))
         summary_text = _format_issue_summary_markdown(issue)
         if summary_text:
@@ -152,9 +156,12 @@ def _build_slack_blocks(
         branch_text = _format_branches_markdown(issue, branch_matches)
         if branch_text:
             blocks.append(context_block(branch_text))
-        branch_actions = _branch_action_block(config, issue, branch_matches)
-        if branch_actions:
-            blocks.append(branch_actions)
+        repo_link_text = _format_issue_repo_link_markdown(issue, repo_links)
+        if repo_link_text:
+            blocks.append(context_block(repo_link_text))
+        issue_actions = _issue_action_block(issue, branch_matches, repo_links)
+        if issue_actions:
+            blocks.append(issue_actions)
         blocks.append(divider_block())
 
     if len(issues) > 10:
@@ -170,6 +177,7 @@ def _format_issue(
     stale_keys: set[str],
     high_keys: set[str],
     branch_matches: dict[str, list[LocalBranchMatch]],
+    repo_links: dict[str, IssueRepositoryLink],
 ) -> list[str]:
     fields = issue["fields"]
     priority = fields.get("priority", {}) or {}
@@ -197,6 +205,11 @@ def _format_issue(
         lines.append(f"관련 로컬 브랜치: {len(branches)}개")
         for branch in branches[:5]:
             lines.append(f"  - {branch.repository}: {branch.branch} | {branch.path}")
+    repo_link = repo_links.get(issue["key"])
+    if repo_link:
+        lines.append(f"연결 repository: {repo_link.repo_name} | {repo_link.repo_path}")
+    else:
+        lines.append("연결 repository: 미선택")
     return lines
 
 
@@ -207,13 +220,15 @@ def _format_issue_markdown(
     stale_keys: set[str],
     high_keys: set[str],
     branch_matches: dict[str, list[LocalBranchMatch]],
+    repo_links: dict[str, IssueRepositoryLink],
 ) -> str:
     fields = issue["fields"]
     badges = " ".join(f"`{badge}`" for badge in _badges(issue["key"], yesterday_keys, stale_keys, high_keys))
     subtask_badge = f"`하위 {len(_subtasks(issue))}`" if _subtasks(issue) else ""
     branch_badge = f"`브랜치 {len(branch_matches.get(issue['key'], []))}`" if branch_matches.get(issue["key"]) else ""
+    repo_badge = f"`repo {repo_links[issue['key']].repo_name}`" if issue["key"] in repo_links else "`repo 미선택`"
     title = f"<{_issue_url(config, issue['key'])}|{issue['key']}> {fields.get('summary', '')}"
-    suffix_parts = [item for item in [badges, subtask_badge, branch_badge] if item]
+    suffix_parts = [item for item in [badges, subtask_badge, branch_badge, repo_badge] if item]
     suffix = f" {' '.join(suffix_parts)}" if suffix_parts else ""
     return f"*{title}*{suffix}"
 
@@ -261,34 +276,44 @@ def _format_branches_markdown(issue: dict[str, Any], branch_matches: dict[str, l
     return "\n".join(lines)
 
 
-def _branch_action_block(
-    config: AppConfig,
+def _issue_action_block(
     issue: dict[str, Any],
     branch_matches: dict[str, list[LocalBranchMatch]],
+    repo_links: dict[str, IssueRepositoryLink],
 ) -> dict[str, Any] | None:
-    if branch_matches.get(issue["key"]):
-        return None
-    repos = configured_repositories(config)[:5]
-    if not repos:
-        return None
+    issue_key = issue["key"]
     summary = str((issue.get("fields", {}) or {}).get("summary", ""))
-    buttons = []
-    for repo in repos:
+    buttons = [
+        button_element(
+            "레포 연결 선택",
+            f"pas://jira/link?{urlencode({'issue': issue_key, 'summary': summary})}",
+            action_id=f"jira_repo_link_{issue_key}"[:255],
+        )
+    ]
+    repo_link = repo_links.get(issue_key)
+    if repo_link:
         query = urlencode(
             {
-                "issue": issue["key"],
+                "issue": issue_key,
                 "summary": summary,
-                "repo": str(repo),
+                "repo": str(repo_link.repo_path),
             }
         )
         buttons.append(
             button_element(
-                f"{repo.name} 브랜치 만들기",
+                f"{repo_link.repo_name} dev에서 브랜치 시작",
                 f"pas://branch/create?{query}",
-                action_id=f"branch_create_{issue['key']}_{repo.name}"[:255],
+                action_id=f"branch_create_{issue_key}_{repo_link.repo_name}"[:255],
             )
         )
     return actions_block(buttons)
+
+
+def _format_issue_repo_link_markdown(issue: dict[str, Any], repo_links: dict[str, IssueRepositoryLink]) -> str:
+    repo_link = repo_links.get(issue["key"])
+    if not repo_link:
+        return "연결 repository: 아직 선택하지 않았습니다."
+    return f"연결 repository: *{repo_link.repo_name}* `{repo_link.repo_path}`"
 
 
 def _local_branch_matches(config: AppConfig, issues: list[dict[str, Any]]) -> dict[str, list[LocalBranchMatch]]:

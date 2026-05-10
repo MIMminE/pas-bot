@@ -7,6 +7,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from pas_automation.config import AppConfig
+from pas_automation.app_state import default_report_agent_path
 from pas_automation.integrations.git_repos import (
     ahead_behind,
     can_snapshot,
@@ -78,6 +79,9 @@ def report(
     snapshot_name: str,
     send_slack: bool,
     dry_run: bool,
+    manual_notes: str = "",
+    manual_notes_file: str | None = None,
+    report_agent_file: str | None = None,
 ) -> str:
     if not config.features.git_report:
         return "Git 일일 보고 기능이 꺼져 있습니다."
@@ -85,7 +89,9 @@ def report(
     raw = json.loads(snapshot_path.read_text(encoding="utf-8")) if snapshot_path.exists() else {}
     entries = collect_report_entries(config, raw)
     report_material = format_report_material(entries)
-    final_report = build_report(config.openai, report_material)
+    notes = _read_optional_text(manual_notes_file) or manual_notes
+    rules = _read_report_agent_rules(report_agent_file)
+    final_report = build_report(config.openai, report_material, manual_notes=notes, report_rules=rules)
 
     if dry_run:
         return "[dry-run]\n" + final_report
@@ -94,6 +100,20 @@ def report(
         SlackClient(config.slack, destination="git_report").send(final_report, blocks=_report_blocks(final_report, len(entries)))
 
     return final_report
+
+
+def _read_report_agent_rules(path: str | None) -> str:
+    target = Path(path).expanduser() if path else default_report_agent_path()
+    return _read_optional_text(str(target))
+
+
+def _read_optional_text(path: str | None) -> str:
+    if not path:
+        return ""
+    target = Path(path).expanduser()
+    if not target.exists():
+        return ""
+    return target.read_text(encoding="utf-8").strip()
 
 
 def collect_report_entries(config: AppConfig, snapshot_raw: dict | None = None) -> list[RepoReportEntry]:
