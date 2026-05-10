@@ -587,7 +587,7 @@ private struct SettingsSection<Content: View>: View {
                 Image(systemName: systemImage)
                     .font(.system(size: 15, weight: .semibold))
                     .frame(width: 24, height: 24)
-                    .foregroundStyle(.accent)
+                    .foregroundStyle(Color.accentColor)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
