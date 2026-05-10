@@ -132,6 +132,12 @@ catch_up_if_missed = true
 `[slack].mode = "oauth"`이면 `[slack].bot_token`과 `[slack.channels]`의 기능별 채널 ID를 사용한다. macOS 설정 마법사는 Bot Token으로 채널 목록을 조회하고, 사용자가 기능별 채널을 선택할 수 있게 한다.
 필요한 Slack Bot Token Scope는 `chat:write`, `channels:read`, 비공개 채널 사용 시 `groups:read`다.
 
+설정 마법사는 토큰 입력 부담을 줄이기 위해 각 서비스의 공식 생성/안내 페이지를 직접 열 수 있게 한다.
+
+- Slack: Slack App 관리와 scope 안내 페이지로 이동
+- Jira: Atlassian API token 생성 페이지와 공식 안내 문서로 이동
+- GitHub: fine-grained PAT 생성 페이지와 공식 안내 문서로 이동
+
 기능별 Slack 목적지:
 
 - `test`: Slack 연결 테스트

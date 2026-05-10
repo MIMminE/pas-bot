@@ -101,6 +101,14 @@ holiday_dates = []
 OAuth 모드를 쓰려면 Slack App의 Bot Token Scopes에 `chat:write`, `channels:read`, 비공개 채널까지 쓸 경우 `groups:read`를 추가하고 워크스페이스에 설치해야 합니다.
 `[feature_groups]`에서 Jira/Git/루틴/AI/개발 도구/알림 묶음을 끄면 해당 묶음의 수동 실행과 자동 실행 대상에서 제외됩니다. `[schedules.*]`는 OS 스케줄러 등록 여부와 실행 시간을 제어합니다.
 
+## 연결 안내
+
+macOS 설정 마법사는 각 외부 서비스의 토큰 생성 페이지를 바로 열 수 있는 안내 버튼을 제공합니다.
+
+- Slack: Slack App 관리 페이지를 열고 `chat:write`, `channels:read`, 필요 시 `groups:read` 권한을 확인합니다.
+- Jira: Atlassian API 토큰 생성 페이지를 열고, 생성한 토큰을 Jira API Token 입력칸에 붙여넣습니다.
+- GitHub: fine-grained personal access token 생성 페이지를 열고, PAS가 조회할 repository와 읽기 권한을 선택합니다.
+
 `config.toml`은 git에 커밋하지 않습니다. 릴리즈 앱을 실행하면 OS별 앱 데이터 폴더에 초기 설정 파일을 만들고, macOS 메뉴바 앱은 시작할 때마다 설정 마법사를 먼저 엽니다. 기존 로컬 설정이 있으면 입력값을 미리 채운 상태로 보여주며, 이후 업데이트에서도 같은 로컬 설정을 계속 사용합니다.
 
 Jira 담당자 alias는 같은 폴더의 `assignees.json`에 저장합니다. 이 파일이 있으면 `me`, `choi` 같은 짧은 이름으로 Jira 담당자를 조회하거나 할당할 수 있습니다.

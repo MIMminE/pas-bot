@@ -76,6 +76,20 @@ struct SetupView: View {
                 if settings.usesSlackOAuth {
                     SettingsSecureField(title: "Bot Token", placeholder: "xoxb-...", text: $settings.slackBotToken)
 
+                    GuideBox(
+                        title: "Slack 앱 연결 안내",
+                        lines: [
+                            "Slack App을 만들고 Bot Token Scopes에 chat:write, channels:read를 추가합니다.",
+                            "비공개 채널까지 선택하려면 groups:read도 추가한 뒤 앱을 워크스페이스에 설치합니다.",
+                            "설치 후 Bot User OAuth Token 값을 여기에 입력하면 채널 목록을 불러올 수 있습니다."
+                        ],
+                        buttons: [
+                            GuideButton(title: "Slack 앱 관리 열기", url: "https://api.slack.com/apps"),
+                            GuideButton(title: "chat:write 권한 보기", url: "https://api.slack.com/scopes/chat%3Awrite")
+                        ],
+                        runner: runner
+                    )
+
                     HStack {
                         Button("채널 목록 불러오기") {
                             slackChannels = runner.loadSlackChannels(settings: settings)
@@ -128,6 +142,20 @@ struct SetupView: View {
                 SettingsTextField(title: "이메일", placeholder: "you@example.com", text: $settings.jiraEmail)
                 SettingsSecureField(title: "API Token", placeholder: "Jira API 토큰", text: $settings.jiraApiToken)
                 SettingsTextField(title: "기본 프로젝트", placeholder: "LMS", text: $settings.jiraDefaultProject)
+
+                GuideBox(
+                    title: "Jira API 토큰 안내",
+                    lines: [
+                        "Jira Cloud는 계정 이메일과 API 토큰으로 REST API를 호출합니다.",
+                        "토큰을 만든 뒤 API Token 입력칸에 붙여넣고, 기본 프로젝트에는 LMS 같은 프로젝트 키를 입력합니다.",
+                        "토큰은 다시 볼 수 없으니 저장 후 분실하면 새로 만들어야 합니다."
+                    ],
+                    buttons: [
+                        GuideButton(title: "Atlassian 토큰 만들기", url: "https://id.atlassian.com/manage-profile/security/api-tokens"),
+                        GuideButton(title: "공식 안내 보기", url: "https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/")
+                    ],
+                    runner: runner
+                )
             }
             .padding(.vertical, 6)
         }
@@ -144,6 +172,20 @@ struct SetupView: View {
                 Text("GitHub 저장소 목록과 로컬 repository root는 설정 폴더의 config.toml에서 계속 확장할 수 있습니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                GuideBox(
+                    title: "GitHub 토큰 안내",
+                    lines: [
+                        "private repository, PR, 브랜치 조회에는 GitHub 토큰이 필요합니다.",
+                        "fine-grained token을 만들고 PAS가 볼 repository를 선택합니다.",
+                        "현재 기능은 repository contents/metadata 읽기와 PR 조회 권한을 중심으로 사용합니다."
+                    ],
+                    buttons: [
+                        GuideButton(title: "GitHub 토큰 만들기", url: "https://github.com/settings/personal-access-tokens/new"),
+                        GuideButton(title: "공식 안내 보기", url: "https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens")
+                    ],
+                    runner: runner
+                )
             }
             .padding(.vertical, 6)
         }
@@ -323,6 +365,47 @@ private struct WebhookField: View {
             placeholder: "https://hooks.slack.com/services/...",
             text: $text
         )
+    }
+}
+
+private struct GuideButton: Hashable {
+    let title: String
+    let url: String
+}
+
+private struct GuideBox: View {
+    let title: String
+    let lines: [String]
+    let buttons: [GuideButton]
+    let runner: PASRunner
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline)
+                .bold()
+
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(lines, id: \.self) { line in
+                    Text("· \(line)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            HStack(spacing: 8) {
+                ForEach(buttons, id: \.self) { item in
+                    Button(item.title) {
+                        runner.openExternalURL(item.url)
+                    }
+                }
+                Spacer()
+            }
+        }
+        .padding(10)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 

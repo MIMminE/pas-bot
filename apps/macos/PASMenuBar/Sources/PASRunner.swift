@@ -47,6 +47,11 @@ final class PASRunner: ObservableObject {
         NSWorkspace.shared.open(directory)
     }
 
+    func openExternalURL(_ value: String) {
+        guard let url = URL(string: value) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     func copyLastOutput() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(lastOutput, forType: .string)
