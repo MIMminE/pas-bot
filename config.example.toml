@@ -1,23 +1,40 @@
+# PAS 설정 예시
+# 실제 토큰과 웹훅은 로컬 config.toml에만 저장하고 git에 커밋하지 않습니다.
+
 [general]
+# 사용할 시간대입니다.
 timezone = "Asia/Seoul"
+# Git 커밋 작성자 필터입니다. git user.name 또는 email을 입력합니다.
 git_author = "your-git-name-or-email"
+# 퇴근 체크와 Git 보고서의 기준 시간입니다.
 work_end_time = "18:00"
+# 스냅샷과 실행 상태를 저장할 폴더입니다. ".pas"는 config.toml 위치를 의미합니다.
 data_dir = ".pas"
 
 [jira]
+# Atlassian Jira 사이트 주소입니다.
 base_url = "https://your-company.atlassian.net"
+# Jira 계정 이메일입니다.
 email = "you@example.com"
+# Jira API 토큰입니다.
 api_token = ""
+# 기본 프로젝트 키입니다. 예: LMS
 default_project = "OPS"
+# 오늘 내 미처리 일감 조회 JQL입니다.
 todo_jql = "assignee = currentUser() AND statusCategory != Done ORDER BY priority DESC, updated DESC"
+# 어제 내게 할당된 일감 조회 JQL입니다.
 yesterday_assigned_jql = "assignee = currentUser() AND assignee CHANGED TO currentUser() DURING (startOfDay(-1), startOfDay())"
+# 오래 업데이트되지 않은 일감 조회 JQL입니다.
 stale_jql = "assignee = currentUser() AND statusCategory != Done AND updated <= -5d"
+# 높은 우선순위 일감 조회 JQL입니다.
 high_priority_jql = "assignee = currentUser() AND statusCategory != Done AND priority in (Highest, High)"
 
 [slack]
+# 기본 Slack 인바운드 웹훅입니다. 기능별 웹훅이 비어 있으면 이 값을 사용합니다.
 webhook_url = ""
 
 [slack.webhooks]
+# 기능별 Slack 목적지입니다. 서로 다른 채널로 보내고 싶을 때 각각 입력합니다.
 default = ""
 test = ""
 morning_briefing = ""
@@ -28,25 +45,36 @@ git_status = ""
 alerts = ""
 
 [openai]
+# AI 초안 기능에 사용할 OpenAI API 키입니다. 비어 있으면 원본 데이터 fallback을 사용합니다.
 api_key = ""
+# AI 초안 생성 모델입니다.
 model = "gpt-5-mini"
 
 [github]
+# GitHub API 토큰입니다. private repository, PR 조회, 브랜치 조회에 사용합니다.
 token = ""
 
 [[github.repositories]]
+# Jira 키와 브랜치/PR을 매칭할 GitHub repository입니다.
 owner = "your-org"
 name = "your-repo"
 
 [feature_groups]
+# Jira 브리핑, 이슈 조회, 담당자 할당 묶음입니다.
 jira = true
+# Git 스냅샷, Git 보고서, repository 상태 점검 묶음입니다.
 git = true
+# 출근 브리핑, 퇴근 체크 묶음입니다.
 routines = true
+# OpenAI 기반 초안 생성 묶음입니다.
 ai = true
+# 브랜치명, 커밋 메시지, PR 초안, Jira 키 점검 묶음입니다.
 dev_tools = true
+# Slack 알림과 alerts 묶음입니다.
 notifications = true
 
 [schedules.morning_briefing]
+# 출근 브리핑 자동 실행 설정입니다.
 enabled = false
 time = "09:00"
 catch_up_if_missed = true
@@ -54,6 +82,7 @@ weekdays_only = true
 holiday_dates = []
 
 [schedules.evening_check]
+# 퇴근 체크 자동 실행 설정입니다.
 enabled = false
 time = "18:20"
 catch_up_if_missed = true
@@ -61,6 +90,7 @@ weekdays_only = true
 holiday_dates = []
 
 [schedules.jira_daily]
+# Jira 오늘 일감 브리핑 자동 실행 설정입니다.
 enabled = false
 time = "09:00"
 catch_up_if_missed = true
@@ -68,6 +98,7 @@ weekdays_only = true
 holiday_dates = []
 
 [schedules.git_report]
+# Git 작업 보고서 자동 실행 설정입니다.
 enabled = false
 time = "18:30"
 catch_up_if_missed = true
@@ -75,6 +106,7 @@ weekdays_only = true
 holiday_dates = []
 
 [schedules.git_status]
+# Git repository 상태 점검 자동 실행 설정입니다.
 enabled = false
 time = "09:10"
 catch_up_if_missed = true
@@ -82,5 +114,7 @@ weekdays_only = true
 holiday_dates = []
 
 [[repositories.roots]]
+# 로컬 Git repository를 찾을 루트 폴더입니다.
 path = "/Users/yourname/STL"
+# true면 하위 폴더를 재귀적으로 탐색합니다.
 recursive = true
