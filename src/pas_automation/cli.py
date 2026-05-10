@@ -9,6 +9,7 @@ from pas_automation.config import load_config
 from pas_automation.features.ai_assistant import git_summary, incident_draft, jira_issue_summary, monthly_review, pr_description
 from pas_automation.features.assignees import list_assignees
 from pas_automation.features.automation import tick
+from pas_automation.features.daily_activity import summarize_daily_activity
 from pas_automation.features.dev_assistant import audit_jira_keys, branch_name, calendar_summary, commit_message, create_branch, dashboard, evening_check, morning_briefing, pr_draft
 from pas_automation.features.doctor import run_doctor
 from pas_automation.features.health import run_health
@@ -16,6 +17,7 @@ from pas_automation.features.jira_daily import assign_issue, format_today_items
 from pas_automation.features.repo_report import report, snapshot
 from pas_automation.features.repo_morning_sync import morning_sync
 from pas_automation.features.repo_status import summarize_repositories
+from pas_automation.features.remote_repos import clone_remote_repository, format_remote_repositories, list_remote_repositories
 from pas_automation.features.scheduler import install_schedules, schedule_status, uninstall_schedules
 from pas_automation.features.settings_import import import_settings
 from pas_automation.features.slack_test import send_test_message
@@ -74,6 +76,15 @@ def build_parser() -> argparse.ArgumentParser:
     repo_list.add_argument("--format", choices=["text", "tsv"], default="text", help="출력 형식")
     repo_list.add_argument("--all", action="store_true", help="관리 대상 선택값을 무시하고 root 하위 전체 조회")
 
+    repo_remote_list = repo_sub.add_parser("remote-list", help="gh CLI 인증으로 접근 가능한 GitHub repository 후보 조회")
+    repo_remote_list.add_argument("--owner", default="", help="조회할 GitHub user/org. 비우면 현재 gh 계정 기준")
+    repo_remote_list.add_argument("--limit", type=int, default=200, help="최대 조회 개수")
+    repo_remote_list.add_argument("--format", choices=["text", "tsv"], default="text", help="출력 형식")
+
+    repo_clone = repo_sub.add_parser("clone", help="gh CLI로 원격 repository를 로컬 root에 clone")
+    repo_clone.add_argument("--repo", required=True, help="owner/name, SSH URL 또는 HTTPS URL")
+    repo_clone.add_argument("--target-root", required=True, help="clone할 상위 폴더")
+
     repo_update = repo_sub.add_parser("update", help="관리 중인 repository fetch/pull/rebase/push 실행")
     repo_update.add_argument("--repo", required=True, help="작업할 repository 경로")
     repo_update.add_argument("--mode", choices=["fetch", "pull", "rebase", "push"], default="pull", help="실행할 Git 작업")
@@ -81,6 +92,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     repo_commits = repo_sub.add_parser("commits", help="repository의 오늘 내 커밋 조회")
     repo_commits.add_argument("--repo", required=True, help="조회할 repository 경로")
+
+    repo_sub.add_parser("activity", help="오늘 브랜치/커밋/머지/PR 활동 요약")
 
     repo_send_text = repo_sub.add_parser("send-report-text", help="수정한 보고서 텍스트를 Slack으로 전송")
     repo_send_text.add_argument("--text-file", required=True, help="전송할 보고서 텍스트 파일")
@@ -255,6 +268,16 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"- {repo_path.name} [{snapshot_item.branch}] {sync} | {repo_path}")
         return 0
 
+    if args.area == "repo" and args.command == "remote-list":
+        repos = list_remote_repositories(owner=args.owner, limit=args.limit)
+        print(format_remote_repositories(repos, output_format=args.format))
+        return 0
+
+    if args.area == "repo" and args.command == "clone":
+        path = clone_remote_repository(repo=args.repo, target_root=args.target_root)
+        print(f"{path}\tclone 완료")
+        return 0
+
     if args.area == "repo" and args.command == "update":
         repo_path = Path(args.repo).expanduser().resolve()
         managed = {path.resolve() for path in configured_repositories(config)}
@@ -297,6 +320,10 @@ def main(argv: list[str] | None = None) -> int:
             until=f"{today} {config.general.work_end_time}",
         )
         print(output or "오늘 내 커밋이 없습니다.")
+        return 0
+
+    if args.area == "repo" and args.command == "activity":
+        print(summarize_daily_activity(config))
         return 0
 
     if args.area == "repo" and args.command == "send-report-text":

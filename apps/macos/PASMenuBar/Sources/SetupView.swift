@@ -6,8 +6,14 @@ struct SetupView: View {
     @State private var settings: PASSettings
     @State private var slackChannels: [SlackChannel] = []
     @State private var localRepositories: [LocalRepositoryOption] = []
+    @State private var remoteRepositories: [GitHubRemoteRepositoryOption] = []
+    @State private var selectedRemoteRepositoryIDs: Set<String> = []
+    @State private var remoteOwner = ""
+    @State private var remoteCloneRoot = ""
     @State private var isLoadingSlackChannels = false
     @State private var isLoadingLocalRepositories = false
+    @State private var isLoadingRemoteRepositories = false
+    @State private var isCloningRemoteRepositories = false
 
     init(runner: PASRunner) {
         self.runner = runner
@@ -256,9 +262,89 @@ struct SetupView: View {
                 .padding(10)
                 .background(Color(nsColor: .controlBackgroundColor))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                remoteRepositorySection
             }
             .padding(.vertical, 6)
         }
+    }
+
+    private var remoteRepositorySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("GitHub 원격 repository 후보")
+                    .font(.subheadline)
+                    .bold()
+                Spacer()
+                Text("gh CLI 로그인 사용")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("로컬에 저장한 토큰 없이 현재 기기의 gh auth 로그인 상태로 접근 가능한 repository를 조회하고, 선택한 root 아래로 clone합니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 8) {
+                TextField("owner 또는 org 예: MIMminE, start-today-stl", text: $remoteOwner)
+                    .textFieldStyle(.roundedBorder)
+
+                Picker("clone 위치", selection: $remoteCloneRoot) {
+                    Text("root 선택").tag("")
+                    ForEach(settings.repoRoots.filter { !$0.path.isEmpty }) { root in
+                        Text(root.path).tag(root.path)
+                    }
+                }
+                .frame(width: 260)
+
+                Button(isLoadingRemoteRepositories ? "조회 중..." : "원격 후보 불러오기") {
+                    Task { await loadRemoteRepositories() }
+                }
+                .disabled(runner.isRunning || isLoadingRemoteRepositories)
+            }
+
+            if isLoadingRemoteRepositories || isCloningRemoteRepositories {
+                HStack {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(isCloningRemoteRepositories ? "선택한 repository를 clone하는 중" : "GitHub repository 후보를 조회하는 중")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if remoteRepositories.isEmpty {
+                Text("후보를 불러오면 접근 가능한 repository 목록이 표시됩니다. 조직 repo가 보이지 않으면 GitHub 조직 SSO 승인이 필요할 수 있습니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                RemoteRepositoryPicker(
+                    repositories: remoteRepositories,
+                    selectedIDs: $selectedRemoteRepositoryIDs
+                )
+
+                HStack {
+                    Button("선택 repo 가져오기") {
+                        Task { await cloneSelectedRemoteRepositories() }
+                    }
+                    .disabled(
+                        runner.isRunning
+                            || isCloningRemoteRepositories
+                            || selectedRemoteRepositoryIDs.isEmpty
+                            || remoteCloneRoot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    )
+
+                    Text("선택 \(selectedRemoteRepositoryIDs.count)개")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+                }
+            }
+        }
+        .padding(10)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
     private var testSection: some View {
@@ -383,6 +469,44 @@ struct SetupView: View {
         }
         .padding(20)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private func loadRemoteRepositories() async {
+        isLoadingRemoteRepositories = true
+        if remoteCloneRoot.isEmpty, let firstRoot = settings.repoRoots.first(where: { !$0.path.isEmpty }) {
+            remoteCloneRoot = firstRoot.path
+        }
+        remoteRepositories = await runner.loadRemoteRepositories(owner: remoteOwner)
+        selectedRemoteRepositoryIDs.removeAll()
+        isLoadingRemoteRepositories = false
+    }
+
+    private func cloneSelectedRemoteRepositories() async {
+        let targetRoot = remoteCloneRoot.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !targetRoot.isEmpty else { return }
+        let selected = remoteRepositories.filter { selectedRemoteRepositoryIDs.contains($0.id) }
+        guard !selected.isEmpty else { return }
+
+        isCloningRemoteRepositories = true
+        for repo in selected {
+            let result = await runner.cloneRemoteRepository(repo, targetRoot: targetRoot)
+            if result.succeeded {
+                let localPath = parseClonedPath(result.displayText)
+                if !localPath.isEmpty {
+                    settings.repoProjectPaths.insert(localPath)
+                }
+            }
+        }
+        localRepositories = await runner.loadLocalRepositories(settings: settings)
+        settings.repoProjectPaths.formUnion(localRepositories.map(\.path).filter { path in
+            selected.contains { path.hasSuffix("/\($0.shortName)") || path.hasSuffix("\\\($0.shortName)") }
+        })
+        selectedRemoteRepositoryIDs.removeAll()
+        isCloningRemoteRepositories = false
+    }
+
+    private func parseClonedPath(_ output: String) -> String {
+        output.split(separator: "\n").first?.split(separator: "\t").first.map(String.init) ?? ""
     }
 
     private func runSlackTest(_ destination: String) {
@@ -612,6 +736,73 @@ private struct LocalRepositoryProjectPicker: View {
                     }
                 }
             }
+        }
+    }
+}
+
+private struct RemoteRepositoryPicker: View {
+    let repositories: [GitHubRemoteRepositoryOption]
+    @Binding var selectedIDs: Set<String>
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("가져올 원격 repository")
+                    .font(.subheadline)
+                    .bold()
+
+                Spacer()
+
+                Button("전체 선택") {
+                    selectedIDs = Set(repositories.map(\.id))
+                }
+
+                Button("전체 해제") {
+                    selectedIDs.removeAll()
+                }
+            }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(repositories) { repo in
+                        Toggle(isOn: Binding(
+                            get: { selectedIDs.contains(repo.id) },
+                            set: { isSelected in
+                                if isSelected {
+                                    selectedIDs.insert(repo.id)
+                                } else {
+                                    selectedIDs.remove(repo.id)
+                                }
+                            }
+                        )) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack {
+                                    Text(repo.nameWithOwner)
+                                        .font(.body)
+                                    Text(repo.visibility)
+                                        .font(.caption)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color(nsColor: .textBackgroundColor))
+                                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                                    if !repo.defaultBranch.isEmpty {
+                                        Text(repo.defaultBranch)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                }
+
+                                Text(repo.sshURL.isEmpty ? repo.webURL : repo.sshURL)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: 220)
         }
     }
 }

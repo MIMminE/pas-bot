@@ -17,7 +17,7 @@ from pas_automation.integrations.git_repos import (
     status_porcelain,
 )
 from pas_automation.integrations.openai_report import build_report
-from pas_automation.integrations.slack import SlackClient, context_block, header_block, section_block
+from pas_automation.integrations.slack import SlackClient, context_block, divider_block, fields_block, header_block, section_block
 
 
 @dataclass(frozen=True)
@@ -33,7 +33,7 @@ class RepoReportEntry:
     @property
     def rebase_hint(self) -> str:
         if self.behind and self.ahead:
-            return f"upstream과 분기됨: rebase/merge 확인 필요 (ahead {self.ahead}, behind {self.behind})"
+            return f"upstream과 분기됨. rebase/merge 확인 필요 (ahead {self.ahead}, behind {self.behind})"
         if self.behind:
             return f"rebase 또는 pull 확인 필요 (behind {self.behind})"
         if self.ahead:
@@ -109,7 +109,7 @@ def collect_report_entries(config: AppConfig, snapshot_raw: dict | None = None) 
     for repo in configured_repositories(config):
         if not can_snapshot(repo):
             continue
-        snapshot = snapshot_repo(repo)
+        snapshot_item = snapshot_repo(repo)
         dirty = status_porcelain(repo)
         ahead, behind = ahead_behind(repo)
         snapshot_head = snapshot_heads.get(str(repo))
@@ -122,7 +122,7 @@ def collect_report_entries(config: AppConfig, snapshot_raw: dict | None = None) 
         entries.append(
             RepoReportEntry(
                 path=repo,
-                branch=snapshot.branch,
+                branch=snapshot_item.branch,
                 dirty_count=len(dirty),
                 ahead=ahead,
                 behind=behind,
@@ -170,8 +170,71 @@ def _today_until(config: AppConfig) -> str:
 
 
 def _report_blocks(report_text: str, repo_count: int) -> list[dict]:
-    return [
+    if not report_text.strip():
+        return [
+            header_block("오늘의 Git 작업 보고서"),
+            fields_block(
+                [
+                    f"*대상 repository*\n{repo_count}개",
+                    "*작업 내역*\n확인된 커밋 없음",
+                ]
+            ),
+            section_block("오늘 git 커밋 기준으로 확인된 작업 내역이 없습니다."),
+        ]
+
+    sections = _split_report_sections(report_text)
+    blocks = [
         header_block("오늘의 Git 작업 보고서"),
-        section_block(report_text or "오늘 git 커밋 기준으로 확인된 작업 내역이 없습니다."),
-        context_block(f"커밋이 확인된 repository: {repo_count}개"),
+        fields_block(
+            [
+                f"*대상 repository*\n{repo_count}개",
+                f"*보고 섹션*\n{len(sections)}개",
+            ]
+        ),
+        context_block("커밋, 브랜치, 변경 상태를 바탕으로 정리한 업무 보고입니다."),
+        divider_block(),
     ]
+
+    for index, section in enumerate(sections[:10], start=1):
+        title, body = _section_title_body(section, index)
+        blocks.append(section_block(f"*{title}*\n>{_quote_text(body)}"))
+        if index < min(len(sections), 10):
+            blocks.append(divider_block())
+
+    if len(sections) > 10:
+        blocks.append(context_block(f"Slack 표시 한도 때문에 나머지 섹션 {len(sections) - 10}개는 생략했습니다."))
+    return blocks[:50]
+
+
+def _split_report_sections(report_text: str) -> list[str]:
+    sections = [item.strip() for item in report_text.split("\n\n") if item.strip()]
+    if len(sections) <= 1 and len(report_text) > 1200:
+        lines = [line.strip() for line in report_text.splitlines() if line.strip()]
+        chunks: list[str] = []
+        current: list[str] = []
+        for line in lines:
+            current.append(line)
+            if sum(len(item) for item in current) > 800:
+                chunks.append("\n".join(current))
+                current = []
+        if current:
+            chunks.append("\n".join(current))
+        return chunks
+    return sections or [report_text.strip()]
+
+
+def _section_title_body(section: str, index: int) -> tuple[str, str]:
+    lines = [line.strip() for line in section.splitlines() if line.strip()]
+    if not lines:
+        return f"요약 {index}", ""
+    first = lines[0].strip("#-* ")
+    if len(first) <= 80:
+        return first, "\n".join(lines[1:]) or first
+    return f"요약 {index}", "\n".join(lines)
+
+
+def _quote_text(text: str) -> str:
+    clipped = text.strip()
+    if len(clipped) > 1700:
+        clipped = clipped[:1697].rstrip() + "..."
+    return clipped.replace("\n", "\n>")

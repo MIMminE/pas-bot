@@ -261,6 +261,40 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
         return Self.parseLocalRepositories(result.output)
     }
 
+    func loadRemoteRepositories(owner: String) async -> [GitHubRemoteRepositoryOption] {
+        status = "GitHub 원격 repository 후보를 불러오는 중..."
+        var arguments = ["repo", "remote-list", "--format", "tsv"]
+        let trimmedOwner = owner.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedOwner.isEmpty {
+            arguments.append(contentsOf: ["--owner", trimmedOwner])
+        }
+        let result = await Self.executeDetached(arguments)
+        lastOutput = result.output
+        status = result.succeeded ? "GitHub 원격 repository 후보를 불러왔습니다" : "GitHub 원격 repository 조회 실패"
+        if !result.succeeded {
+            openOutputWindow(title: "GitHub repository 조회 오류", output: result.output.isEmpty ? result.summary : result.output)
+            return []
+        }
+        return Self.parseRemoteRepositories(result.output)
+    }
+
+    func cloneRemoteRepository(_ repo: GitHubRemoteRepositoryOption, targetRoot: String) async -> PASCommandResult {
+        guard !isRunning else {
+            return PASCommandResult(succeeded: false, output: "", summary: "이미 실행 중인 작업이 있습니다.")
+        }
+        isRunning = true
+        status = "\(repo.nameWithOwner) clone 중..."
+        let source = repo.sshURL.isEmpty ? repo.nameWithOwner : repo.sshURL
+        let result = await Self.executeDetached(["repo", "clone", "--repo", source, "--target-root", targetRoot])
+        lastOutput = result.output
+        status = result.succeeded ? "\(repo.nameWithOwner) clone 완료" : "\(repo.nameWithOwner) clone 실패"
+        isRunning = false
+        if !result.succeeded {
+            openOutputWindow(title: "GitHub repository clone 오류", output: result.output.isEmpty ? result.summary : result.output)
+        }
+        return PASCommandResult(succeeded: result.succeeded, output: result.output, summary: result.summary)
+    }
+
     func loadManagedRepositories() async -> [LocalRepositoryOption] {
         status = "관리 중인 Git repository 상태를 불러오는 중..."
         let result = await Self.executeDetached(["repo", "list", "--format", "tsv"])
@@ -271,6 +305,18 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
             return []
         }
         return Self.parseLocalRepositories(result.output)
+    }
+
+    func refreshManagedRepositories(fetchRemote: Bool) async -> [LocalRepositoryOption] {
+        if fetchRemote {
+            status = "원격 Git 상태를 갱신하는 중..."
+            let listResult = await Self.executeDetached(["repo", "list", "--format", "tsv"])
+            let repos = Self.parseLocalRepositories(listResult.output)
+            for repo in repos {
+                _ = await Self.executeDetached(["repo", "update", "--repo", repo.path, "--mode", "fetch"])
+            }
+        }
+        return await loadManagedRepositories()
     }
 
     func runRepositoryUpdate(path: String, mode: String) async -> String {
@@ -284,6 +330,24 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
             openOutputWindow(title: "Git 작업 오류", output: result.output.isEmpty ? result.summary : result.output)
         }
         return result.output.isEmpty ? result.summary : result.output
+    }
+
+    func runDashboardCommand(
+        _ arguments: [String],
+        runningStatus: String,
+        successStatus: String,
+        failureStatus: String
+    ) async -> PASCommandResult {
+        guard !isRunning else {
+            return PASCommandResult(succeeded: false, output: "", summary: "이미 실행 중인 작업이 있습니다.")
+        }
+        isRunning = true
+        status = runningStatus
+        let result = await Self.executeDetached(arguments)
+        lastOutput = result.output
+        status = result.succeeded ? successStatus : failureStatus
+        isRunning = false
+        return PASCommandResult(succeeded: result.succeeded, output: result.output, summary: result.summary)
     }
 
     func createBranch(issue: String, repo: String, summary: String) async {
@@ -310,6 +374,17 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
         status = result.succeeded ? "오늘 커밋을 불러왔습니다" : "오늘 커밋 조회 실패"
         if !result.succeeded {
             openOutputWindow(title: "오늘 커밋 조회 오류", output: result.output.isEmpty ? result.summary : result.output)
+        }
+        return result.output.isEmpty ? result.summary : result.output
+    }
+
+    func loadTodayActivity() async -> String {
+        status = "오늘 개발 흐름을 불러오는 중..."
+        let result = await Self.executeDetached(["repo", "activity"])
+        lastOutput = result.output
+        status = result.succeeded ? "오늘 개발 흐름을 불러왔습니다" : "오늘 개발 흐름 조회 실패"
+        if !result.succeeded {
+            openOutputWindow(title: "오늘 개발 흐름 조회 오류", output: result.output.isEmpty ? result.summary : result.output)
         }
         return result.output.isEmpty ? result.summary : result.output
     }
@@ -375,6 +450,23 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
                 )
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private nonisolated static func parseRemoteRepositories(_ output: String) -> [GitHubRemoteRepositoryOption] {
+        output
+            .split(separator: "\n")
+            .compactMap { line in
+                let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
+                guard parts.count >= 5 else { return nil }
+                return GitHubRemoteRepositoryOption(
+                    nameWithOwner: String(parts[0]),
+                    sshURL: String(parts[1]),
+                    webURL: String(parts[2]),
+                    visibility: String(parts[3]),
+                    defaultBranch: String(parts[4])
+                )
+            }
+            .sorted { $0.nameWithOwner.localizedCaseInsensitiveCompare($1.nameWithOwner) == .orderedAscending }
     }
 
     private nonisolated static func stripDryRunPrefix(_ value: String) -> String {
@@ -938,6 +1030,17 @@ struct OutputView: View {
     }
 }
 
+struct PASCommandResult: Sendable {
+    let succeeded: Bool
+    let output: String
+    let summary: String
+
+    var displayText: String {
+        let value = output.isEmpty ? summary : output
+        return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "출력 없음" : value
+    }
+}
+
 struct PASSettings {
     var slackMode: String
     var slackBotToken: String
@@ -1028,6 +1131,26 @@ struct LocalRepositoryRoot: Identifiable, Hashable, Sendable {
 
     var id: String {
         path
+    }
+}
+
+struct GitHubRemoteRepositoryOption: Identifiable, Hashable, Sendable {
+    let nameWithOwner: String
+    let sshURL: String
+    let webURL: String
+    let visibility: String
+    let defaultBranch: String
+
+    var id: String {
+        nameWithOwner
+    }
+
+    var shortName: String {
+        nameWithOwner.split(separator: "/").last.map(String.init) ?? nameWithOwner
+    }
+
+    var label: String {
+        "\(nameWithOwner) [\(visibility)] \(defaultBranch)"
     }
 }
 
