@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from pas_automation.config import AppConfig
-from pas_automation.integrations.git_repos import current_branch, discover_repositories, git, recent_commits
+from pas_automation.integrations.git_repos import configured_repositories, current_branch, git, recent_commits
 from pas_automation.integrations.jira import JiraClient
 from pas_automation.integrations.openai_report import generate_text, tone_instruction
 
@@ -36,7 +36,7 @@ def pr_description(config: AppConfig, *, repo_path: str | None, issue_key: str |
         config.openai,
         system=_system(tone),
         prompt=(
-            "아래 정보를 기반으로 GitHub PR 제목과 본문 초안을 작성해줘.\n"
+            "아래 정보를 기반으로 PR 제목과 본문 초안을 작성해줘.\n"
             "본문 섹션: 작업 내용, 확인 방법, 리스크/참고.\n\n"
             f"브랜치: {branch}\n"
             f"Jira:\n{issue}\n\n"
@@ -174,10 +174,7 @@ def _jira_doc_to_text(value: object) -> str:
 
 
 def _repositories(config: AppConfig) -> list[Path]:
-    repos: list[Path] = []
-    for root in config.repo_roots:
-        repos.extend(discover_repositories(root.path, recursive=root.recursive))
-    return repos
+    return configured_repositories(config)
 
 
 def _repo_path(config: AppConfig, repo_path: str | None) -> Path:

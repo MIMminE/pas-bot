@@ -20,8 +20,12 @@ if [[ -f "$PROJECT_ROOT/config.toml" ]]; then
     echo "missing config: jira.api_token"
     missing=1
   }
-  grep -q 'webhook_url = "https://hooks.slack.com/services/' "$PROJECT_ROOT/config.toml" || {
-    echo "missing config: slack.webhook_url"
+  grep -q 'bot_token = "xoxb-' "$PROJECT_ROOT/config.toml" || {
+    echo "missing config: slack.bot_token"
+    missing=1
+  }
+  grep -q 'jira_daily = "C' "$PROJECT_ROOT/config.toml" || {
+    echo "missing config: slack.channels.jira_daily"
     missing=1
   }
 fi

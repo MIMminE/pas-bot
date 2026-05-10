@@ -5,9 +5,9 @@ struct SetupView: View {
 
     @State private var settings: PASSettings
     @State private var slackChannels: [SlackChannel] = []
-    @State private var githubRepositories: [GitHubRepositoryOption] = []
+    @State private var localRepositories: [LocalRepositoryOption] = []
     @State private var isLoadingSlackChannels = false
-    @State private var isLoadingGitHubRepositories = false
+    @State private var isLoadingLocalRepositories = false
 
     init(runner: PASRunner) {
         self.runner = runner
@@ -41,7 +41,7 @@ struct SetupView: View {
                     .font(.title2)
                     .bold()
 
-                Text("Jira, Slack, GitHub, Git 작업 보고를 개인 개발 비서 흐름에 맞게 연결합니다.")
+                Text("Jira, Slack, 로컬 Git 작업 보고를 개인 개발 비서 흐름에 맞게 연결합니다.")
                     .foregroundStyle(.secondary)
             }
 
@@ -66,84 +66,69 @@ struct SetupView: View {
     private var slackSection: some View {
         GroupBox("Slack 목적지") {
             VStack(alignment: .leading, spacing: 10) {
-                Text("웹훅 직접 입력 또는 Slack 앱 연결 방식으로 기능별 전송 채널을 지정합니다.")
+                Text("Slack 앱 Bot Token으로 채널 목록을 불러오고, 기능별 전송 채널을 지정합니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Picker("연결 방식", selection: $settings.slackMode) {
-                    Text("Webhook 직접 입력").tag("webhook")
-                    Text("Slack 앱 연결").tag("oauth")
-                }
-                .pickerStyle(.segmented)
+                SettingsSecureField(title: "Bot Token", placeholder: "xoxb-...", text: $settings.slackBotToken)
 
-                if settings.usesSlackOAuth {
-                    SettingsSecureField(title: "Bot Token", placeholder: "xoxb-...", text: $settings.slackBotToken)
+                GuideBox(
+                    title: "Slack 앱 연결 안내",
+                    lines: [
+                        "Slack App을 만들고 Bot Token Scopes에 chat:write, channels:read를 추가합니다.",
+                        "비공개 채널까지 선택하려면 groups:read도 추가한 뒤 앱을 워크스페이스에 설치합니다.",
+                        "설치 후 Bot User OAuth Token 값을 여기에 입력하면 채널 목록을 불러올 수 있습니다."
+                    ],
+                    buttons: [
+                        GuideButton(title: "Slack 앱 관리 열기", url: "https://api.slack.com/apps"),
+                        GuideButton(title: "chat:write 권한 보기", url: "https://api.slack.com/scopes/chat%3Awrite")
+                    ],
+                    runner: runner
+                )
 
-                    GuideBox(
-                        title: "Slack 앱 연결 안내",
-                        lines: [
-                            "Slack App을 만들고 Bot Token Scopes에 chat:write, channels:read를 추가합니다.",
-                            "비공개 채널까지 선택하려면 groups:read도 추가한 뒤 앱을 워크스페이스에 설치합니다.",
-                            "설치 후 Bot User OAuth Token 값을 여기에 입력하면 채널 목록을 불러올 수 있습니다."
-                        ],
-                        buttons: [
-                            GuideButton(title: "Slack 앱 관리 열기", url: "https://api.slack.com/apps"),
-                            GuideButton(title: "chat:write 권한 보기", url: "https://api.slack.com/scopes/chat%3Awrite")
-                        ],
-                        runner: runner
-                    )
-
-                    HStack {
-                        Button(isLoadingSlackChannels ? "불러오는 중..." : "채널 목록 불러오기") {
-                            isLoadingSlackChannels = true
-                            Task {
-                                slackChannels = await runner.loadSlackChannels(settings: settings)
-                                isLoadingSlackChannels = false
-                            }
+                HStack {
+                    Button(isLoadingSlackChannels ? "불러오는 중..." : "채널 목록 불러오기") {
+                        isLoadingSlackChannels = true
+                        Task {
+                            slackChannels = await runner.loadSlackChannels(settings: settings)
+                            isLoadingSlackChannels = false
                         }
-                        .disabled(runner.isRunning || settings.slackBotToken.isEmpty || isLoadingSlackChannels)
+                    }
+                    .disabled(runner.isRunning || settings.slackBotToken.isEmpty || isLoadingSlackChannels)
 
-                        if isLoadingSlackChannels {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("Slack에서 채널을 확인하는 중")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Text("Slack App 권한: chat:write, channels:read, groups:read")
+                    if isLoadingSlackChannels {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Slack에서 채널을 확인하는 중")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-
-                        Spacer()
                     }
 
-                    if slackChannels.isEmpty {
-                        ChannelIdField(title: "기본", text: $settings.slackDefaultChannelID)
-                        ChannelIdField(title: "연결 테스트", text: $settings.slackTestChannelID)
-                        ChannelIdField(title: "출근 브리핑", text: $settings.slackMorningChannelID)
-                        ChannelIdField(title: "퇴근 체크", text: $settings.slackEveningChannelID)
-                        ChannelIdField(title: "Jira 아침 브리핑", text: $settings.slackJiraChannelID)
-                        ChannelIdField(title: "Git 오늘 한 일 보고", text: $settings.slackGitReportChannelID)
-                        ChannelIdField(title: "Git 상태 점검", text: $settings.slackGitStatusChannelID)
-                        ChannelIdField(title: "긴급 알림", text: $settings.slackAlertsChannelID)
-                    } else {
-                        ChannelPicker(title: "기본", channels: slackChannels, selection: $settings.slackDefaultChannelID)
-                        ChannelPicker(title: "연결 테스트", channels: slackChannels, selection: $settings.slackTestChannelID)
-                        ChannelPicker(title: "출근 브리핑", channels: slackChannels, selection: $settings.slackMorningChannelID)
-                        ChannelPicker(title: "퇴근 체크", channels: slackChannels, selection: $settings.slackEveningChannelID)
-                        ChannelPicker(title: "Jira 아침 브리핑", channels: slackChannels, selection: $settings.slackJiraChannelID)
-                        ChannelPicker(title: "Git 오늘 한 일 보고", channels: slackChannels, selection: $settings.slackGitReportChannelID)
-                        ChannelPicker(title: "Git 상태 점검", channels: slackChannels, selection: $settings.slackGitStatusChannelID)
-                        ChannelPicker(title: "긴급 알림", channels: slackChannels, selection: $settings.slackAlertsChannelID)
-                    }
+                    Text("Slack App 권한: chat:write, channels:read, groups:read")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+                }
+
+                if slackChannels.isEmpty {
+                    ChannelIdField(title: "기본", text: $settings.slackDefaultChannelID)
+                    ChannelIdField(title: "연결 테스트", text: $settings.slackTestChannelID)
+                    ChannelIdField(title: "출근 브리핑", text: $settings.slackMorningChannelID)
+                    ChannelIdField(title: "퇴근 체크", text: $settings.slackEveningChannelID)
+                    ChannelIdField(title: "Jira 아침 브리핑", text: $settings.slackJiraChannelID)
+                    ChannelIdField(title: "Git 오늘 한 일 보고", text: $settings.slackGitReportChannelID)
+                    ChannelIdField(title: "Git 상태 점검", text: $settings.slackGitStatusChannelID)
+                    ChannelIdField(title: "긴급 알림", text: $settings.slackAlertsChannelID)
                 } else {
-                    WebhookField(title: "기본", text: $settings.slackDefaultWebhookURL)
-                    WebhookField(title: "연결 테스트", text: $settings.slackTestWebhookURL)
-                    WebhookField(title: "Jira 아침 브리핑", text: $settings.slackJiraWebhookURL)
-                    WebhookField(title: "Git 오늘 한 일 보고", text: $settings.slackGitReportWebhookURL)
-                    WebhookField(title: "Git 상태 점검", text: $settings.slackGitStatusWebhookURL)
-                    WebhookField(title: "긴급 알림", text: $settings.slackAlertsWebhookURL)
+                    ChannelPicker(title: "기본", channels: slackChannels, selection: $settings.slackDefaultChannelID)
+                    ChannelPicker(title: "연결 테스트", channels: slackChannels, selection: $settings.slackTestChannelID)
+                    ChannelPicker(title: "출근 브리핑", channels: slackChannels, selection: $settings.slackMorningChannelID)
+                    ChannelPicker(title: "퇴근 체크", channels: slackChannels, selection: $settings.slackEveningChannelID)
+                    ChannelPicker(title: "Jira 아침 브리핑", channels: slackChannels, selection: $settings.slackJiraChannelID)
+                    ChannelPicker(title: "Git 오늘 한 일 보고", channels: slackChannels, selection: $settings.slackGitReportChannelID)
+                    ChannelPicker(title: "Git 상태 점검", channels: slackChannels, selection: $settings.slackGitStatusChannelID)
+                    ChannelPicker(title: "긴급 알림", channels: slackChannels, selection: $settings.slackAlertsChannelID)
                 }
             }
             .padding(.vertical, 6)
@@ -181,63 +166,96 @@ struct SetupView: View {
             VStack(alignment: .leading, spacing: 10) {
                 SettingsTextField(title: "Git 작성자", placeholder: "git user.name 또는 email", text: $settings.gitAuthor)
                 SettingsTextField(title: "퇴근 기준 시간", placeholder: "18:00", text: $settings.workEndTime)
-                SettingsSecureField(title: "GitHub Token", placeholder: "GitHub fine-grained token", text: $settings.githubToken)
                 SettingsSecureField(title: "OpenAI API Key", placeholder: "Git 보고서 AI 요약 사용 시 입력", text: $settings.openAIKey)
 
-                Text("GitHub 저장소 목록과 로컬 repository root는 설정 폴더의 config.toml에서 계속 확장할 수 있습니다.")
+                Text("로컬에 clone 또는 pull 되어 있는 Git repository를 기준으로 상태 점검과 작업 보고를 만듭니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
                 GuideBox(
-                    title: "GitHub 토큰 안내",
+                    title: "로컬 Git repository 안내",
                     lines: [
-                        "private repository, PR, 브랜치 조회에는 GitHub 토큰이 필요합니다.",
-                        "fine-grained token을 만들고 PAS가 볼 repository를 선택합니다.",
-                        "현재 기능은 repository contents/metadata 읽기와 PR 조회 권한을 중심으로 사용합니다."
+                        "회사 조직 토큰 없이도 로컬에 받아둔 repository의 브랜치, 커밋, 변경 상태를 확인합니다.",
+                        "STL 같은 상위 폴더를 root로 지정하고 하위 폴더 탐색을 켜면 여러 repository를 한 번에 찾습니다.",
+                        "원격 최신 상태를 보려면 각 repository의 기존 git 인증으로 fetch/pull이 가능한 상태면 충분합니다."
                     ],
                     buttons: [
-                        GuideButton(title: "GitHub 토큰 만들기", url: "https://github.com/settings/personal-access-tokens/new"),
-                        GuideButton(title: "공식 안내 보기", url: "https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens")
+                        GuideButton(title: "Git 문서 보기", url: "https://git-scm.com/doc")
                     ],
                     runner: runner
                 )
 
                 HStack {
-                    Button(isLoadingGitHubRepositories ? "불러오는 중..." : "GitHub 레포 목록 불러오기") {
-                        isLoadingGitHubRepositories = true
-                        Task {
-                            githubRepositories = await runner.loadGitHubRepositories(settings: settings)
-                            isLoadingGitHubRepositories = false
+                    Button("repository root 폴더 추가") {
+                        runner.selectRepositoryRoot { path in
+                            if !settings.repoRoots.contains(where: { $0.path == path }) {
+                                settings.repoRoots.append(LocalRepositoryRoot(path: path, recursive: true))
+                            }
                         }
                     }
-                    .disabled(runner.isRunning || settings.githubToken.isEmpty || isLoadingGitHubRepositories)
 
-                    if isLoadingGitHubRepositories {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("GitHub에서 repository를 확인하는 중")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    Button("빈 항목 추가") {
+                        settings.repoRoots.append(LocalRepositoryRoot(path: "", recursive: true))
                     }
 
-                    Text("선택한 레포 \(settings.githubRepositoryIDs.count)개")
+                    Text("등록한 root \(settings.repoRoots.filter { !$0.path.isEmpty }.count)개")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
                     Spacer()
                 }
 
-                if githubRepositories.isEmpty {
-                    Text(settings.githubRepositoryIDs.isEmpty ? "아직 선택한 원격 repository가 없습니다." : "저장된 원격 repository: \(settings.githubRepositoryIDs.sorted().joined(separator: ", "))")
+                if settings.repoRoots.isEmpty {
+                    Text("아직 등록한 repository root가 없습니다.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    GitHubRepositoryPicker(
-                        repositories: githubRepositories,
-                        selectedIDs: $settings.githubRepositoryIDs
-                    )
+                    LocalRepositoryRootEditor(roots: $settings.repoRoots, runner: runner)
                 }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Button(isLoadingLocalRepositories ? "불러오는 중..." : "Git 프로젝트 목록 불러오기") {
+                            isLoadingLocalRepositories = true
+                            Task {
+                                localRepositories = await runner.loadLocalRepositories(settings: settings)
+                                if settings.repoProjectPaths.isEmpty {
+                                    settings.repoProjectPaths = Set(localRepositories.map(\.path))
+                                }
+                                isLoadingLocalRepositories = false
+                            }
+                        }
+                        .disabled(runner.isRunning || settings.repoRoots.isEmpty || isLoadingLocalRepositories)
+
+                        if isLoadingLocalRepositories {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("root 하위 Git 프로젝트를 확인하는 중")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Text("선택한 프로젝트 \(settings.repoProjectPaths.count)개")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Spacer()
+                    }
+
+                    if localRepositories.isEmpty {
+                        Text("목록을 불러오면 관리할 프로젝트를 선택할 수 있습니다. 선택값이 비어 있으면 root 하위 전체를 관리합니다.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        LocalRepositoryProjectPicker(
+                            repositories: localRepositories,
+                            selectedPaths: $settings.repoProjectPaths
+                        )
+                    }
+                }
+                .padding(10)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             }
             .padding(.vertical, 6)
         }
@@ -407,19 +425,6 @@ private struct SettingsSecureField: View {
     }
 }
 
-private struct WebhookField: View {
-    let title: String
-    @Binding var text: String
-
-    var body: some View {
-        SettingsTextField(
-            title: title,
-            placeholder: "https://hooks.slack.com/services/...",
-            text: $text
-        )
-    }
-}
-
 private struct GuideButton: Hashable {
     let title: String
     let url: String
@@ -497,54 +502,114 @@ private struct ChannelPicker: View {
     }
 }
 
-private struct GitHubRepositoryPicker: View {
-    let repositories: [GitHubRepositoryOption]
-    @Binding var selectedIDs: Set<String>
+private struct LocalRepositoryRootEditor: View {
+    @Binding var roots: [LocalRepositoryRoot]
+    let runner: PASRunner
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("관리할 원격 repository")
+                Text("관리할 로컬 repository root")
                     .font(.subheadline)
                     .bold()
 
                 Spacer()
-
-                Button("전체 선택") {
-                    selectedIDs = Set(repositories.map(\.id))
-                }
-
-                Button("전체 해제") {
-                    selectedIDs.removeAll()
-                }
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                ForEach(repositories) { repo in
-                    Toggle(isOn: Binding(
-                        get: { selectedIDs.contains(repo.id) },
-                        set: { isSelected in
-                            if isSelected {
-                                selectedIDs.insert(repo.id)
-                            } else {
-                                selectedIDs.remove(repo.id)
+                ForEach(roots.indices, id: \.self) { index in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            TextField("/Users/you/STL", text: $roots[index].path)
+                                .textFieldStyle(.roundedBorder)
+
+                            Button("선택") {
+                                runner.selectRepositoryRoot { path in
+                                    roots[index].path = path
+                                }
+                            }
+
+                            Button("삭제") {
+                                roots.remove(at: index)
                             }
                         }
-                    )) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(repo.label)
-                                .font(.body)
-                            Text("기본 브랜치: \(repo.defaultBranch.isEmpty ? "-" : repo.defaultBranch)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+
+                        Toggle("하위 폴더에서 repository 찾기", isOn: $roots[index].recursive)
+                            .font(.caption)
                     }
+                    .padding(8)
+                    .background(Color(nsColor: .textBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
             }
         }
         .padding(10)
         .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct LocalRepositoryProjectPicker: View {
+    let repositories: [LocalRepositoryOption]
+    @Binding var selectedPaths: Set<String>
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("관리할 Git 프로젝트")
+                    .font(.subheadline)
+                    .bold()
+
+                Spacer()
+
+                Button("전체 선택") {
+                    selectedPaths = Set(repositories.map(\.path))
+                }
+
+                Button("전체 해제") {
+                    selectedPaths.removeAll()
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(repositories) { repo in
+                    Toggle(isOn: Binding(
+                        get: { selectedPaths.contains(repo.path) },
+                        set: { isSelected in
+                            if isSelected {
+                                selectedPaths.insert(repo.path)
+                            } else {
+                                selectedPaths.remove(repo.path)
+                            }
+                        }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Text(repo.name)
+                                    .font(.body)
+                                Text(repo.branch)
+                                    .font(.caption)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color(nsColor: .textBackgroundColor))
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                                if repo.dirtyCount > 0 {
+                                    Text("변경 \(repo.dirtyCount)")
+                                        .font(.caption)
+                                        .foregroundStyle(.orange)
+                                }
+                                Spacer()
+                            }
+
+                            Text("\(repo.syncLabel) | \(repo.path)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

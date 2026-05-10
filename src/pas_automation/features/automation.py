@@ -10,7 +10,7 @@ from pas_automation.features.dev_assistant import evening_check, morning_briefin
 from pas_automation.features.jira_daily import format_today_items
 from pas_automation.features.repo_report import report
 from pas_automation.features.repo_status import summarize_repositories
-from pas_automation.integrations.slack import SlackWebhook, section_block
+from pas_automation.integrations.slack import SlackClient, section_block
 
 
 TASKS = ("morning_briefing", "evening_check", "jira_daily", "git_report", "git_status")
@@ -97,7 +97,7 @@ def _run_task(config: AppConfig, task: str) -> None:
 
 def _send_failure_alert(config: AppConfig, task: str, exc: Exception) -> None:
     try:
-        SlackWebhook(config.slack, destination="alerts").send(
+        SlackClient(config.slack, destination="alerts").send(
             f"PAS 자동 실행 실패: {task}",
             blocks=[section_block(f"*PAS 자동 실행 실패*\n작업: `{task}`\n오류: `{exc}`")],
         )

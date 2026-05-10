@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pas_automation.config import AppConfig
-from pas_automation.integrations.git_repos import discover_repositories
+from pas_automation.integrations.git_repos import configured_repositories, discover_repositories
 
 
 def run_doctor(config: AppConfig) -> str:
@@ -13,7 +13,7 @@ def run_doctor(config: AppConfig) -> str:
         _check("jira.base_url", bool(config.jira.base_url), config.jira.base_url),
         _check("jira.email", bool(config.jira.email), config.jira.email),
         _secret_check("jira.api_token", bool(config.jira.api_token), "config.toml에 입력 필요"),
-        _check("slack.mode", config.slack.mode in {"webhook", "oauth"}, config.slack.mode),
+        _check("slack.mode", config.slack.mode == "oauth", "oauth"),
         _secret_check("slack.default", config.slack.destination_configured(), "기본 Slack 목적지"),
         _secret_check("slack.test", config.slack.destination_configured("test"), "테스트 메시지 목적지"),
         _secret_check("slack.jira_daily", config.slack.destination_configured("jira_daily"), "Jira 브리핑 목적지"),
@@ -34,6 +34,7 @@ def run_doctor(config: AppConfig) -> str:
         repo_lines.append(f"[{status}] repository root: {root.path} | recursive={root.recursive} | repos={len(repos)}")
 
     passed = sum(1 for item in checks if item.startswith("[OK]"))
+    managed_repos = len(configured_repositories(config))
     lines = [
         "PAS 설정 진단",
         f"필수/주요 항목 {passed}/{len(checks)}개 확인",
@@ -44,6 +45,7 @@ def run_doctor(config: AppConfig) -> str:
         *(repo_lines or ["[WARN] repository root가 아직 설정되지 않았습니다."]),
         "",
         f"발견한 Git repository: {total_repos}개",
+        f"관리 대상 Git repository: {managed_repos}개",
     ]
     return "\n".join(lines)
 

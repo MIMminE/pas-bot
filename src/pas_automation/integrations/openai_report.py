@@ -5,7 +5,7 @@ from pas_automation.http import json_request
 
 
 TONE_INSTRUCTIONS = {
-    "brief": "짧고 핵심만 적는다. 불필요한 수식어를 피한다.",
+    "brief": "짧고 핵심만 남긴다. 불필요한 수식어를 줄인다.",
     "detailed": "맥락, 작업 범위, 확인 사항을 조금 더 자세히 정리한다.",
     "manager": "관리자가 빠르게 판단할 수 있게 성과, 리스크, 다음 액션 중심으로 정리한다.",
 }
@@ -37,12 +37,14 @@ def build_report(config: OpenAIConfig, commits_text: str) -> str:
     return generate_text(
         config,
         system=(
-            "You write concise Korean daily work reports from git commits. "
+            "You write concise Korean daily work reports from git repository evidence. "
+            "Use repository status, branch, sync hints, and commit messages as evidence. "
             "Group related work, avoid exaggeration, and mention uncertainty when the commit message is vague."
         ),
         prompt=(
-            "아래 git commit 목록을 기반으로 오늘 작업 보고서를 한국어로 작성해줘. "
-            "Slack에 바로 붙여넣기 좋게 제목, 핵심 작업, 참고/리스크 순서로 간결하게 정리해줘.\n\n"
+            "아래 로컬 Git repository 상태와 커밋 목록을 기반으로 오늘 작업 보고서를 한국어로 작성해줘. "
+            "Slack에 바로 보낼 수 있게 제목, 핵심 작업, 확인 필요/리스크 순서로 간결하게 정리해줘. "
+            "rebase/pull/push 필요 여부도 참고 항목에 반영해줘.\n\n"
             f"{commits_text}"
         ),
         fallback=fallback_report(commits_text),

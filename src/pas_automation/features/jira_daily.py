@@ -1,21 +1,29 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from pas_automation.config import AppConfig
 from pas_automation.features.assignees import resolve_assignee
-from pas_automation.integrations.github import GitHubBranchMatch, GitHubClient
+from pas_automation.integrations.git_repos import configured_repositories, git
 from pas_automation.integrations.jira import JiraClient
 from pas_automation.integrations.slack import (
-    SlackWebhook,
+    SlackClient,
     context_block,
     divider_block,
     fields_block,
     header_block,
     section_block,
 )
+
+
+@dataclass(frozen=True)
+class LocalBranchMatch:
+    repository: str
+    branch: str
+    path: str
 
 
 def format_today_items(
@@ -47,14 +55,14 @@ def format_today_items(
     yesterday_keys = _issue_keys(client.search(config.jira.yesterday_assigned_jql, max_results=100))
     stale_keys = _issue_keys(client.search(config.jira.stale_jql, max_results=100))
     high_keys = _issue_keys(client.search(config.jira.high_priority_jql, max_results=100))
-    branch_matches = _github_branch_matches(config, issues)
+    branch_matches = _local_branch_matches(config, issues)
 
     today = datetime.now(ZoneInfo(config.general.timezone)).date().isoformat()
     lines = _build_text_report(config, today, issues, yesterday_keys, stale_keys, high_keys, branch_matches)
 
     message = "\n".join(lines)
     if send_slack:
-        SlackWebhook(config.slack, destination="jira_daily").send(
+        SlackClient(config.slack, destination="jira_daily").send(
             message,
             blocks=_build_slack_blocks(config, today, issues, yesterday_keys, stale_keys, high_keys, branch_matches),
         )
@@ -76,7 +84,7 @@ def _build_text_report(
     yesterday_keys: set[str],
     stale_keys: set[str],
     high_keys: set[str],
-    branch_matches: dict[str, list[GitHubBranchMatch]],
+    branch_matches: dict[str, list[LocalBranchMatch]],
 ) -> list[str]:
     subtask_count = sum(len(_subtasks(issue)) for issue in issues)
     lines = [
@@ -108,7 +116,7 @@ def _build_slack_blocks(
     yesterday_keys: set[str],
     stale_keys: set[str],
     high_keys: set[str],
-    branch_matches: dict[str, list[GitHubBranchMatch]],
+    branch_matches: dict[str, list[LocalBranchMatch]],
 ) -> list[dict[str, Any]]:
     subtask_count = sum(len(_subtasks(issue)) for issue in issues)
     blocks = [
@@ -155,7 +163,7 @@ def _format_issue(
     yesterday_keys: set[str],
     stale_keys: set[str],
     high_keys: set[str],
-    branch_matches: dict[str, list[GitHubBranchMatch]],
+    branch_matches: dict[str, list[LocalBranchMatch]],
 ) -> list[str]:
     fields = issue["fields"]
     priority = fields.get("priority", {}) or {}
@@ -180,9 +188,9 @@ def _format_issue(
             lines.append(f"  - 외 {len(subtasks) - 5}개")
     branches = branch_matches.get(issue["key"], [])
     if branches:
-        lines.append(f"관련 GitHub 브랜치: {len(branches)}개")
+        lines.append(f"관련 로컬 브랜치: {len(branches)}개")
         for branch in branches[:5]:
-            lines.append(f"  - {branch.repository}: {branch.branch} | {branch.url}")
+            lines.append(f"  - {branch.repository}: {branch.branch} | {branch.path}")
     return lines
 
 
@@ -192,7 +200,7 @@ def _format_issue_markdown(
     yesterday_keys: set[str],
     stale_keys: set[str],
     high_keys: set[str],
-    branch_matches: dict[str, list[GitHubBranchMatch]],
+    branch_matches: dict[str, list[LocalBranchMatch]],
 ) -> str:
     fields = issue["fields"]
     badges = " ".join(f"`{badge}`" for badge in _badges(issue["key"], yesterday_keys, stale_keys, high_keys))
@@ -235,29 +243,45 @@ def _format_subtasks_markdown(config: AppConfig, issue: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _format_branches_markdown(issue: dict[str, Any], branch_matches: dict[str, list[GitHubBranchMatch]]) -> str:
+def _format_branches_markdown(issue: dict[str, Any], branch_matches: dict[str, list[LocalBranchMatch]]) -> str:
     branches = branch_matches.get(issue["key"], [])
     if not branches:
         return ""
-    lines = [f"관련 GitHub 브랜치 {len(branches)}개"]
+    lines = [f"관련 로컬 브랜치 {len(branches)}개"]
     for branch in branches[:5]:
-        lines.append(f"• {branch.repository}: <{branch.url}|{branch.branch}>")
+        lines.append(f"• {branch.repository}: `{branch.branch}`")
     if len(branches) > 5:
         lines.append(f"• 외 {len(branches) - 5}개")
     return "\n".join(lines)
 
 
-def _github_branch_matches(config: AppConfig, issues: list[dict[str, Any]]) -> dict[str, list[GitHubBranchMatch]]:
-    if not config.github.repositories:
+def _local_branch_matches(config: AppConfig, issues: list[dict[str, Any]]) -> dict[str, list[LocalBranchMatch]]:
+    if not config.repo_roots:
         return {}
-    client = GitHubClient(config.github)
-    matches: dict[str, list[GitHubBranchMatch]] = {}
+    repos = configured_repositories(config)
+    if not repos:
+        return {}
+
+    matches: dict[str, list[LocalBranchMatch]] = {}
     for issue in issues:
         issue_key = issue["key"]
-        try:
-            found = client.find_branches(issue_key)
-        except RuntimeError:
-            found = []
+        found: list[LocalBranchMatch] = []
+        needle = issue_key.lower()
+        for repo in repos:
+            try:
+                output = git(repo, "branch", "-a", "--format=%(refname:short)")
+            except RuntimeError:
+                continue
+            for branch in output.splitlines():
+                name = branch.strip()
+                if not name or "HEAD ->" in name:
+                    continue
+                if needle in name.lower():
+                    found.append(LocalBranchMatch(repository=repo.name, branch=name, path=str(repo)))
+                    if len(found) >= 5:
+                        break
+            if len(found) >= 5:
+                break
         if found:
             matches[issue_key] = found
     return matches

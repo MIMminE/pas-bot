@@ -74,6 +74,12 @@ final class PASRunner: ObservableObject {
         }
     }
 
+    func selectRepositoryRoot(onSelect: @escaping (String) -> Void) {
+        selectDirectory { url in
+            onSelect(url.path)
+        }
+    }
+
     func openSetupWindow() {
         if let setupWindow {
             setupWindow.makeKeyAndOrderFront(nil)
@@ -102,14 +108,8 @@ final class PASRunner: ObservableObject {
 
     func loadSettings() -> PASSettings {
         PASSettings(
-            slackMode: readConfigValue(section: "slack", key: "mode").isEmpty ? "webhook" : readConfigValue(section: "slack", key: "mode"),
-            slackDefaultWebhookURL: readConfigValue(section: "slack", key: "webhook_url"),
+            slackMode: "oauth",
             slackBotToken: readConfigValue(section: "slack", key: "bot_token"),
-            slackTestWebhookURL: readConfigValue(section: "slack.webhooks", key: "test"),
-            slackJiraWebhookURL: readConfigValue(section: "slack.webhooks", key: "jira_daily"),
-            slackGitReportWebhookURL: readConfigValue(section: "slack.webhooks", key: "git_report"),
-            slackGitStatusWebhookURL: readConfigValue(section: "slack.webhooks", key: "git_status"),
-            slackAlertsWebhookURL: readConfigValue(section: "slack.webhooks", key: "alerts"),
             slackDefaultChannelID: readConfigValue(section: "slack.channels", key: "default"),
             slackTestChannelID: readConfigValue(section: "slack.channels", key: "test"),
             slackMorningChannelID: readConfigValue(section: "slack.channels", key: "morning_briefing"),
@@ -124,8 +124,8 @@ final class PASRunner: ObservableObject {
             jiraDefaultProject: readConfigValue(section: "jira", key: "default_project"),
             gitAuthor: readConfigValue(section: "general", key: "git_author"),
             workEndTime: readConfigValue(section: "general", key: "work_end_time"),
-            githubToken: readConfigValue(section: "github", key: "token"),
-            githubRepositoryIDs: Set(readGitHubRepositories().map { $0.id }),
+            repoRoots: readRepositoryRoots(),
+            repoProjectPaths: Set(readRepositoryProjects()),
             openAIKey: readConfigValue(section: "openai", key: "api_key"),
             jiraDailyEnabled: readBoolConfigValue(section: "feature_groups", key: "jira", defaultValue: true),
             gitReportEnabled: readBoolConfigValue(section: "feature_groups", key: "git", defaultValue: true),
@@ -169,17 +169,17 @@ final class PASRunner: ObservableObject {
         return Self.parseSlackChannels(result.output)
     }
 
-    func loadGitHubRepositories(settings: PASSettings) async -> [GitHubRepositoryOption] {
+    func loadLocalRepositories(settings: PASSettings) async -> [LocalRepositoryOption] {
         saveSettings(settings)
-        status = "GitHub repository 목록을 불러오는 중..."
-        let result = await Self.executeDetached(["repo", "remote-list", "--format", "tsv"])
+        status = "로컬 Git repository 목록을 불러오는 중..."
+        let result = await Self.executeDetached(["repo", "list", "--all", "--format", "tsv"])
         lastOutput = result.output
-        status = result.succeeded ? "GitHub repository 목록을 불러왔습니다" : "GitHub repository 조회 실패"
+        status = result.succeeded ? "로컬 Git repository 목록을 불러왔습니다" : "로컬 Git repository 조회 실패"
         if !result.succeeded {
-            openOutputWindow(title: "GitHub repository 조회 오류", output: result.output.isEmpty ? result.summary : result.output)
+            openOutputWindow(title: "로컬 Git repository 조회 오류", output: result.output.isEmpty ? result.summary : result.output)
             return []
         }
-        return Self.parseGitHubRepositories(result.output)
+        return Self.parseLocalRepositories(result.output)
     }
 
     private nonisolated static func parseSlackChannels(_ output: String) -> [SlackChannel] {
@@ -193,21 +193,22 @@ final class PASRunner: ObservableObject {
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    private nonisolated static func parseGitHubRepositories(_ output: String) -> [GitHubRepositoryOption] {
+    private nonisolated static func parseLocalRepositories(_ output: String) -> [LocalRepositoryOption] {
         output
             .split(separator: "\n")
             .compactMap { line in
                 let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
-                guard parts.count >= 2 else { return nil }
-                return GitHubRepositoryOption(
-                    owner: String(parts[0]),
+                guard parts.count >= 6 else { return nil }
+                return LocalRepositoryOption(
+                    path: String(parts[0]),
                     name: String(parts[1]),
-                    isPrivate: parts.count >= 3 && parts[2].lowercased() == "true",
-                    defaultBranch: parts.count >= 4 ? String(parts[3]) : "",
-                    url: parts.count >= 5 ? String(parts[4]) : ""
+                    branch: String(parts[2]),
+                    ahead: Int(String(parts[3])),
+                    behind: Int(String(parts[4])),
+                    dirtyCount: Int(String(parts[5])) ?? 0
                 )
             }
-            .sorted { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     private nonisolated static func executeDetached(_ arguments: [String]) async -> (succeeded: Bool, output: String, summary: String) {
@@ -385,50 +386,92 @@ final class PASRunner: ObservableObject {
         return value.lowercased() == "true"
     }
 
-    private func readGitHubRepositories() -> [GitHubRepositoryOption] {
+    private func readRepositoryRoots() -> [LocalRepositoryRoot] {
         guard let text = try? String(contentsOf: Self.configURL(), encoding: .utf8) else { return [] }
-        var repositories: [GitHubRepositoryOption] = []
-        var inRepository = false
-        var owner = ""
-        var name = ""
+        var roots: [LocalRepositoryRoot] = []
+        var inRoot = false
+        var path = ""
+        var recursive = true
 
         func flush() {
-            if !owner.isEmpty && !name.isEmpty {
-                repositories.append(GitHubRepositoryOption(owner: owner, name: name, isPrivate: false, defaultBranch: "", url: ""))
+            if !path.isEmpty {
+                roots.append(LocalRepositoryRoot(path: path, recursive: recursive))
             }
-            owner = ""
-            name = ""
+            path = ""
+            recursive = true
         }
 
         for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed == "[[github.repositories]]" {
-                if inRepository {
+            if trimmed == "[[repositories.roots]]" {
+                if inRoot {
                     flush()
                 }
-                inRepository = true
+                inRoot = true
                 continue
             }
             if trimmed.hasPrefix("[") {
-                if inRepository {
+                if inRoot {
                     flush()
-                    inRepository = false
+                    inRoot = false
                 }
                 continue
             }
-            guard inRepository, let separator = trimmed.firstIndex(of: "=") else { continue }
+            guard inRoot, let separator = trimmed.firstIndex(of: "=") else { continue }
             let key = trimmed[..<separator].trimmingCharacters(in: .whitespaces)
             let value = unquote(String(trimmed[trimmed.index(after: separator)...].trimmingCharacters(in: .whitespaces)))
-            if key == "owner" {
-                owner = value
-            } else if key == "name" {
-                name = value
+            if key == "path" {
+                path = value
+            } else if key == "recursive" {
+                recursive = value.lowercased() != "false"
             }
         }
-        if inRepository {
+        if inRoot {
             flush()
         }
-        return repositories
+        return roots
+    }
+
+    private func readRepositoryProjects() -> [String] {
+        guard let text = try? String(contentsOf: Self.configURL(), encoding: .utf8) else { return [] }
+        var projects: [String] = []
+        var inProject = false
+        var path = ""
+
+        func flush() {
+            if !path.isEmpty {
+                projects.append(path)
+            }
+            path = ""
+        }
+
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed == "[[repositories.projects]]" {
+                if inProject {
+                    flush()
+                }
+                inProject = true
+                continue
+            }
+            if trimmed.hasPrefix("[") {
+                if inProject {
+                    flush()
+                    inProject = false
+                }
+                continue
+            }
+            guard inProject, let separator = trimmed.firstIndex(of: "=") else { continue }
+            let key = trimmed[..<separator].trimmingCharacters(in: .whitespaces)
+            let value = unquote(String(trimmed[trimmed.index(after: separator)...].trimmingCharacters(in: .whitespaces)))
+            if key == "path" {
+                path = value
+            }
+        }
+        if inProject {
+            flush()
+        }
+        return projects
     }
 
     private func writeConfig(_ settings: PASSettings) throws {
@@ -439,15 +482,10 @@ final class PASRunner: ObservableObject {
         text = replaceConfigValue(text, section: "jira", key: "email", value: settings.jiraEmail)
         text = replaceConfigValue(text, section: "jira", key: "api_token", value: settings.jiraApiToken)
         text = replaceConfigValue(text, section: "jira", key: "default_project", value: settings.jiraDefaultProject)
-        text = replaceConfigValue(text, section: "slack", key: "mode", value: settings.slackMode)
-        text = replaceConfigValue(text, section: "slack", key: "webhook_url", value: settings.slackDefaultWebhookURL)
+        text = replaceConfigValue(text, section: "slack", key: "mode", value: "oauth")
+        text = removeConfigValue(text, section: "slack", key: "webhook_url")
         text = replaceConfigValue(text, section: "slack", key: "bot_token", value: settings.slackBotToken)
-        text = replaceConfigValue(text, section: "slack.webhooks", key: "default", value: settings.slackDefaultWebhookURL)
-        text = replaceConfigValue(text, section: "slack.webhooks", key: "test", value: settings.slackTestWebhookURL)
-        text = replaceConfigValue(text, section: "slack.webhooks", key: "jira_daily", value: settings.slackJiraWebhookURL)
-        text = replaceConfigValue(text, section: "slack.webhooks", key: "git_report", value: settings.slackGitReportWebhookURL)
-        text = replaceConfigValue(text, section: "slack.webhooks", key: "git_status", value: settings.slackGitStatusWebhookURL)
-        text = replaceConfigValue(text, section: "slack.webhooks", key: "alerts", value: settings.slackAlertsWebhookURL)
+        text = removeConfigSection(text, section: "slack.webhooks")
         text = replaceConfigValue(text, section: "slack.channels", key: "default", value: settings.slackDefaultChannelID)
         text = replaceConfigValue(text, section: "slack.channels", key: "test", value: settings.slackTestChannelID)
         text = replaceConfigValue(text, section: "slack.channels", key: "morning_briefing", value: settings.slackMorningChannelID)
@@ -456,8 +494,10 @@ final class PASRunner: ObservableObject {
         text = replaceConfigValue(text, section: "slack.channels", key: "git_report", value: settings.slackGitReportChannelID)
         text = replaceConfigValue(text, section: "slack.channels", key: "git_status", value: settings.slackGitStatusChannelID)
         text = replaceConfigValue(text, section: "slack.channels", key: "alerts", value: settings.slackAlertsChannelID)
-        text = replaceConfigValue(text, section: "github", key: "token", value: settings.githubToken)
-        text = replaceGitHubRepositories(text, repositoryIDs: settings.githubRepositoryIDs)
+        text = removeConfigSection(text, section: "github")
+        text = removeArraySection(text, section: "github.repositories")
+        text = replaceRepositoryRoots(text, roots: settings.repoRoots)
+        text = replaceRepositoryProjects(text, projectPaths: settings.repoProjectPaths)
         text = replaceConfigValue(text, section: "openai", key: "api_key", value: settings.openAIKey)
         text = replaceConfigBoolValue(text, section: "feature_groups", key: "jira", value: settings.jiraDailyEnabled)
         text = replaceConfigBoolValue(text, section: "feature_groups", key: "git", value: settings.gitReportEnabled || settings.gitStatusEnabled)
@@ -485,13 +525,69 @@ final class PASRunner: ObservableObject {
         replaceConfigLine(text, section: section, key: key, renderedValue: value ? "true" : "false")
     }
 
-    private func replaceGitHubRepositories(_ text: String, repositoryIDs: Set<String>) -> String {
+    private func removeConfigValue(_ text: String, section: String, key: String) -> String {
+        var lines = text.components(separatedBy: .newlines)
+        var currentSection = ""
+        lines.removeAll { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") {
+                currentSection = String(trimmed.dropFirst().dropLast())
+                return false
+            }
+            guard currentSection == section, let separator = trimmed.firstIndex(of: "=") else { return false }
+            let name = trimmed[..<separator].trimmingCharacters(in: .whitespaces)
+            return name == key
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func removeConfigSection(_ text: String, section: String) -> String {
+        let lines = text.components(separatedBy: .newlines)
+        var output: [String] = []
+        var isRemoving = false
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") {
+                isRemoving = trimmed == "[\(section)]"
+                if isRemoving {
+                    continue
+                }
+            }
+            if !isRemoving {
+                output.append(line)
+            }
+        }
+        return output.joined(separator: "\n")
+    }
+
+    private func removeArraySection(_ text: String, section: String) -> String {
+        let lines = text.components(separatedBy: .newlines)
+        var output: [String] = []
+        var isRemoving = false
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("[[") && trimmed.hasSuffix("]]") {
+                isRemoving = trimmed == "[[\(section)]]"
+                if isRemoving {
+                    continue
+                }
+            } else if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") {
+                isRemoving = false
+            }
+            if !isRemoving {
+                output.append(line)
+            }
+        }
+        return output.joined(separator: "\n")
+    }
+
+    private func replaceRepositoryRoots(_ text: String, roots: [LocalRepositoryRoot]) -> String {
         let lines = text.components(separatedBy: .newlines)
         var output: [String] = []
         var index = 0
         while index < lines.count {
             let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
-            if trimmed == "[[github.repositories]]" {
+            if trimmed == "[[repositories.roots]]" {
                 index += 1
                 while index < lines.count {
                     let next = lines[index].trimmingCharacters(in: .whitespaces)
@@ -506,14 +602,53 @@ final class PASRunner: ObservableObject {
             index += 1
         }
 
-        let rendered = repositoryIDs.sorted().compactMap { id -> String? in
-            let parts = id.split(separator: "/", maxSplits: 1)
-            guard parts.count == 2 else { return nil }
+        let rendered = roots.compactMap { root -> String? in
+            let path = root.path.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !path.isEmpty else { return nil }
             return """
 
-            [[github.repositories]]
-            owner = "\(escapeToml(String(parts[0])))"
-            name = "\(escapeToml(String(parts[1])))"
+            [[repositories.roots]]
+            path = "\(escapeToml(path))"
+            recursive = \(root.recursive ? "true" : "false")
+            """
+        }
+        if !rendered.isEmpty {
+            if output.last?.isEmpty == false {
+                output.append("")
+            }
+            output.append(rendered.joined(separator: "\n"))
+        }
+        return output.joined(separator: "\n")
+    }
+
+    private func replaceRepositoryProjects(_ text: String, projectPaths: Set<String>) -> String {
+        let lines = text.components(separatedBy: .newlines)
+        var output: [String] = []
+        var index = 0
+        while index < lines.count {
+            let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
+            if trimmed == "[[repositories.projects]]" {
+                index += 1
+                while index < lines.count {
+                    let next = lines[index].trimmingCharacters(in: .whitespaces)
+                    if next.hasPrefix("[") {
+                        break
+                    }
+                    index += 1
+                }
+                continue
+            }
+            output.append(lines[index])
+            index += 1
+        }
+
+        let rendered = projectPaths.sorted().compactMap { rawPath -> String? in
+            let path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !path.isEmpty else { return nil }
+            return """
+
+            [[repositories.projects]]
+            path = "\(escapeToml(path))"
             """
         }
         if !rendered.isEmpty {
@@ -587,6 +722,16 @@ final class PASRunner: ObservableObject {
             onSelect(url)
         }
     }
+
+    private func selectDirectory(onSelect: @escaping (URL) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            onSelect(url)
+        }
+    }
 }
 
 struct OutputView: View {
@@ -614,13 +759,7 @@ struct OutputView: View {
 
 struct PASSettings {
     var slackMode: String
-    var slackDefaultWebhookURL: String
     var slackBotToken: String
-    var slackTestWebhookURL: String
-    var slackJiraWebhookURL: String
-    var slackGitReportWebhookURL: String
-    var slackGitStatusWebhookURL: String
-    var slackAlertsWebhookURL: String
     var slackDefaultChannelID: String
     var slackTestChannelID: String
     var slackMorningChannelID: String
@@ -635,8 +774,8 @@ struct PASSettings {
     var jiraDefaultProject: String
     var gitAuthor: String
     var workEndTime: String
-    var githubToken: String
-    var githubRepositoryIDs: Set<String>
+    var repoRoots: [LocalRepositoryRoot]
+    var repoProjectPaths: Set<String>
     var openAIKey: String
     var jiraDailyEnabled: Bool
     var gitReportEnabled: Bool
@@ -650,14 +789,6 @@ struct PASSettings {
     var gitStatusScheduleEnabled: Bool
     var gitStatusScheduleTime: String
     var gitStatusCatchUp: Bool
-
-    var testWebhookURL: String {
-        slackTestWebhookURL.isEmpty ? slackDefaultWebhookURL : slackTestWebhookURL
-    }
-
-    var jiraWebhookURL: String {
-        slackJiraWebhookURL.isEmpty ? slackDefaultWebhookURL : slackJiraWebhookURL
-    }
 
     var testChannelID: String {
         slackTestChannelID.isEmpty ? slackDefaultChannelID : slackTestChannelID
@@ -680,17 +811,11 @@ struct PASSettings {
     }
 
     var isReadyForSlackTest: Bool {
-        if usesSlackOAuth {
-            return !slackBotToken.isEmpty && !testChannelID.isEmpty
-        }
-        return testWebhookURL.hasPrefix("https://hooks.slack.com/services/")
+        !slackBotToken.isEmpty && !testChannelID.isEmpty
     }
 
     private var slackJiraReady: Bool {
-        if usesSlackOAuth {
-            return !slackBotToken.isEmpty && !jiraChannelID.isEmpty
-        }
-        return jiraWebhookURL.hasPrefix("https://hooks.slack.com/services/")
+        !slackBotToken.isEmpty && !jiraChannelID.isEmpty
     }
 
     var jiraDailyScheduleTimeOrDefault: String {
@@ -716,18 +841,40 @@ struct SlackChannel: Identifiable, Hashable, Sendable {
     }
 }
 
-struct GitHubRepositoryOption: Identifiable, Hashable, Sendable {
-    let owner: String
-    let name: String
-    let isPrivate: Bool
-    let defaultBranch: String
-    let url: String
+struct LocalRepositoryRoot: Identifiable, Hashable, Sendable {
+    var path: String
+    var recursive: Bool
 
     var id: String {
-        "\(owner)/\(name)"
+        path
+    }
+}
+
+struct LocalRepositoryOption: Identifiable, Hashable, Sendable {
+    let path: String
+    let name: String
+    let branch: String
+    let ahead: Int?
+    let behind: Int?
+    let dirtyCount: Int
+
+    var id: String {
+        path
     }
 
-    var label: String {
-        "\(id)\(isPrivate ? " (private)" : "")"
+    var syncLabel: String {
+        if let ahead, let behind {
+            if ahead > 0 && behind > 0 {
+                return "rebase/merge 확인: ahead \(ahead), behind \(behind)"
+            }
+            if behind > 0 {
+                return "rebase/pull 필요: behind \(behind)"
+            }
+            if ahead > 0 {
+                return "push 필요: ahead \(ahead)"
+            }
+            return "동기화됨"
+        }
+        return "upstream 없음"
     }
 }

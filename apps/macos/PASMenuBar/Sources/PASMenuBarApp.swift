@@ -41,23 +41,18 @@ struct PASMenuBarApp: App {
                 }
                 .disabled(runner.isRunning)
 
-                Button("GitHub 원격 리포트 전송") {
-                    runner.run(["repo", "remote-report", "--send-slack"])
+                Button("Git 작업 보고 스냅샷 저장") {
+                    runner.run(["repo", "snapshot", "--name", "morning"])
                 }
                 .disabled(runner.isRunning)
 
-                Button("GitHub 원격 리포트 미리보기") {
-                    runner.run(["repo", "remote-report", "--dry-run"])
+                Button("Git 작업 보고 전송") {
+                    runner.run(["repo", "report", "--snapshot", "morning", "--send-slack"])
                 }
                 .disabled(runner.isRunning)
 
-                Button("GitHub 브랜치 상태 전송") {
-                    runner.run(["repo", "remote-status", "--send-slack"])
-                }
-                .disabled(runner.isRunning)
-
-                Button("GitHub 브랜치 상태 미리보기") {
-                    runner.run(["repo", "remote-status", "--dry-run"])
+                Button("Git 작업 보고 미리보기") {
+                    runner.run(["repo", "report", "--snapshot", "morning", "--dry-run"])
                 }
                 .disabled(runner.isRunning)
 

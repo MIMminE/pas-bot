@@ -29,39 +29,20 @@ class JiraConfig:
 @dataclass(frozen=True)
 class SlackConfig:
     mode: str
-    webhook_url: str
-    webhooks: dict[str, str]
     bot_token: str
     channels: dict[str, str]
-
-    def webhook_for(self, destination: str = "default") -> str:
-        return self.webhooks.get(destination) or self.webhook_url
 
     def channel_for(self, destination: str = "default") -> str:
         return self.channels.get(destination) or self.channels.get("default", "")
 
     def destination_configured(self, destination: str = "default") -> bool:
-        if self.mode == "oauth":
-            return bool(self.bot_token and self.channel_for(destination))
-        return bool(self.webhook_for(destination))
+        return bool(self.bot_token and self.channel_for(destination))
 
 
 @dataclass(frozen=True)
 class OpenAIConfig:
     api_key: str
     model: str
-
-
-@dataclass(frozen=True)
-class GitHubRepository:
-    owner: str
-    name: str
-
-
-@dataclass(frozen=True)
-class GitHubConfig:
-    token: str
-    repositories: list[GitHubRepository]
 
 
 @dataclass(frozen=True)
@@ -139,18 +120,23 @@ class RepoRoot:
 
 
 @dataclass(frozen=True)
+class RepoProject:
+    path: Path
+
+
+@dataclass(frozen=True)
 class AppConfig:
     root: Path
     general: GeneralConfig
     jira: JiraConfig
     slack: SlackConfig
     openai: OpenAIConfig
-    github: GitHubConfig
     calendar: CalendarConfig
     features: FeatureConfig
     schedules: dict[str, ScheduleConfig]
     assignees_path: Path
     repo_roots: list[RepoRoot]
+    repo_projects: list[RepoProject]
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -161,10 +147,8 @@ def load_config(path: str | Path) -> AppConfig:
     general_raw = raw.get("general", {})
     jira_raw = raw.get("jira", {})
     slack_raw = raw.get("slack", {})
-    slack_webhooks_raw = slack_raw.get("webhooks", {})
     slack_channels_raw = slack_raw.get("channels", {})
     openai_raw = raw.get("openai", {})
-    github_raw = raw.get("github", {})
     calendar_raw = raw.get("calendar", {})
     features_raw = raw.get("features", {})
     feature_groups_raw = raw.get("feature_groups", {})
@@ -183,6 +167,12 @@ def load_config(path: str | Path) -> AppConfig:
             recursive=bool(item.get("recursive", True)),
         )
         for item in repo_roots_raw
+    ]
+    repo_projects_raw = raw.get("repositories", {}).get("projects", [])
+    repo_projects = [
+        RepoProject(path=Path(item["path"]).expanduser())
+        for item in repo_projects_raw
+        if item.get("path")
     ]
 
     return AppConfig(
@@ -213,21 +203,7 @@ def load_config(path: str | Path) -> AppConfig:
             ),
         ),
         slack=SlackConfig(
-            mode=str(slack_raw.get("mode", "webhook")),
-            webhook_url=_config_or_env(slack_raw, "webhook_url", slack_raw.get("webhook_url_env", "SLACK_WEBHOOK_URL")),
-            webhooks={
-                str(key): _config_or_env(slack_webhooks_raw, str(key), "")
-                for key in (
-                    "default",
-                    "test",
-                    "morning_briefing",
-                    "evening_check",
-                    "jira_daily",
-                    "git_report",
-                    "git_status",
-                    "alerts",
-                )
-            },
+            mode="oauth",
             bot_token=_config_or_env(slack_raw, "bot_token", slack_raw.get("bot_token_env", "SLACK_BOT_TOKEN")),
             channels={
                 str(key): str(slack_channels_raw.get(str(key), ""))
@@ -246,13 +222,6 @@ def load_config(path: str | Path) -> AppConfig:
         openai=OpenAIConfig(
             api_key=_config_or_env(openai_raw, "api_key", openai_raw.get("api_key_env", "OPENAI_API_KEY")),
             model=openai_raw.get("model", "gpt-5-mini"),
-        ),
-        github=GitHubConfig(
-            token=_config_or_env(github_raw, "token", github_raw.get("token_env", "GITHUB_TOKEN")),
-            repositories=[
-                GitHubRepository(owner=str(item["owner"]), name=str(item["name"]))
-                for item in github_raw.get("repositories", [])
-            ],
         ),
         calendar=CalendarConfig(
             enabled=bool(calendar_raw.get("enabled", False)),
@@ -286,6 +255,7 @@ def load_config(path: str | Path) -> AppConfig:
         },
         assignees_path=config_path.parent / "assignees.json",
         repo_roots=repo_roots,
+        repo_projects=repo_projects,
     )
 
 

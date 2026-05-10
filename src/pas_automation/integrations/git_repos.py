@@ -21,6 +21,21 @@ def discover_repositories(root: Path, *, recursive: bool) -> list[Path]:
     return repos
 
 
+def configured_repositories(config) -> list[Path]:
+    selected = {item.path.expanduser().resolve() for item in getattr(config, "repo_projects", [])}
+    if selected:
+        return sorted((path for path in selected if (path / ".git").is_dir()), key=lambda item: str(item).lower())
+
+    return discovered_repositories(config)
+
+
+def discovered_repositories(config) -> list[Path]:
+    repos: set[Path] = set()
+    for root in config.repo_roots:
+        repos.update(discover_repositories(root.path.expanduser(), recursive=root.recursive))
+    return sorted(repos, key=lambda item: str(item).lower())
+
+
 def git(repo: Path, *args: str) -> str:
     try:
         result = subprocess.run(
@@ -55,6 +70,19 @@ def commits_since(repo: Path, since_ref: str, *, author: str, until: str | None)
     args = [
         "log",
         f"{since_ref}..HEAD",
+        "--date=iso",
+        f"--author={author}",
+        "--pretty=format:%h | %ad | %an | %s",
+    ]
+    if until:
+        args.insert(1, f"--until={until}")
+    return git(repo, *args)
+
+
+def commits_between(repo: Path, *, author: str, since: str, until: str | None) -> str:
+    args = [
+        "log",
+        f"--since={since}",
         "--date=iso",
         f"--author={author}",
         "--pretty=format:%h | %ad | %an | %s",

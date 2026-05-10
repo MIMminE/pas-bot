@@ -8,43 +8,31 @@ from pas_automation.http import json_request
 SLACK_API_BASE = "https://slack.com/api"
 
 
-class SlackWebhook:
+class SlackClient:
     def __init__(self, config: SlackConfig, *, destination: str = "default") -> None:
         self.config = config
         self.destination = destination
-        self.webhook_url = config.webhook_for(destination)
         self.channel = config.channel_for(destination)
 
-        if config.mode == "oauth":
-            if not config.bot_token:
-                raise RuntimeError("Slack OAuth 모드에는 [slack].bot_token 값이 필요합니다.")
-            if not self.channel:
-                raise RuntimeError(
-                    f"Slack 채널이 설정되어 있지 않습니다. config.toml의 [slack.channels].{destination} 값을 선택해 주세요."
-                )
-            return
-
-        if not self.webhook_url:
+        if not config.bot_token:
+            raise RuntimeError("Slack Bot Token이 설정되어 있지 않습니다. config.toml의 [slack].bot_token 값을 입력해 주세요.")
+        if not self.channel:
             raise RuntimeError(
-                "Slack Webhook URL이 설정되어 있지 않습니다. "
-                f"config.toml의 [slack.webhooks].{destination} 또는 [slack].webhook_url 값을 입력해 주세요."
+                f"Slack 채널이 설정되어 있지 않습니다. config.toml의 [slack.channels].{destination} 값을 선택해 주세요."
             )
 
     def send(self, text: str, *, blocks: list[dict[str, Any]] | None = None) -> None:
         payload: dict[str, Any] = {"text": text}
         if blocks:
             payload["blocks"] = blocks
-        if self.config.mode == "oauth":
-            payload["channel"] = self.channel
-            response = json_request(
-                "POST",
-                f"{SLACK_API_BASE}/chat.postMessage",
-                headers={"Authorization": f"Bearer {self.config.bot_token}"},
-                payload=payload,
-            )
-            _raise_for_slack_error(response)
-            return
-        json_request("POST", self.webhook_url, payload=payload)
+        payload["channel"] = self.channel
+        response = json_request(
+            "POST",
+            f"{SLACK_API_BASE}/chat.postMessage",
+            headers={"Authorization": f"Bearer {self.config.bot_token}"},
+            payload=payload,
+        )
+        _raise_for_slack_error(response)
 
 
 def list_channels(config: SlackConfig) -> list[dict[str, str]]:

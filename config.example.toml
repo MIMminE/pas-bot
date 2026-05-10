@@ -1,5 +1,5 @@
 # PAS 설정 예시
-# 실제 토큰과 웹훅은 로컬 config.toml에만 저장하고 git에 커밋하지 않습니다.
+# 실제 토큰은 로컬 config.toml에만 저장하고 git에 커밋하지 않습니다.
 
 [general]
 # 사용할 시간대입니다.
@@ -30,26 +30,11 @@ stale_jql = "assignee = currentUser() AND statusCategory != Done AND updated <= 
 high_priority_jql = "assignee = currentUser() AND statusCategory != Done AND priority in (Highest, High)"
 
 [slack]
-# Slack 연결 방식입니다. "webhook"은 기존 인바운드 웹훅, "oauth"는 Bot Token과 채널 ID를 사용합니다.
-mode = "webhook"
-# 기본 Slack 인바운드 웹훅입니다. webhook 모드에서 기능별 웹훅이 비어 있으면 이 값을 사용합니다.
-webhook_url = ""
-# Slack Bot User OAuth Token입니다. oauth 모드에서 chat.postMessage와 채널 목록 조회에 사용합니다.
+# Slack Bot User OAuth Token입니다. chat.postMessage 전송과 채널 목록 조회에 사용합니다.
 bot_token = ""
 
-[slack.webhooks]
-# webhook 모드의 기능별 Slack 목적지입니다.
-default = ""
-test = ""
-morning_briefing = ""
-evening_check = ""
-jira_daily = ""
-git_report = ""
-git_status = ""
-alerts = ""
-
 [slack.channels]
-# oauth 모드의 기능별 Slack 채널 ID입니다. 설정 마법사에서 채널 목록을 불러와 선택할 수 있습니다.
+# 기능별 Slack 채널 ID입니다. 설정 마법사에서 채널 목록을 불러와 선택할 수 있습니다.
 default = ""
 test = ""
 morning_briefing = ""
@@ -64,15 +49,6 @@ alerts = ""
 api_key = ""
 # AI 초안 생성 모델입니다.
 model = "gpt-5-mini"
-
-[github]
-# GitHub API 토큰입니다. private repository, PR 조회, 브랜치 조회에 사용합니다.
-token = ""
-
-[[github.repositories]]
-# Jira 키와 브랜치/PR을 매칭할 GitHub repository입니다.
-owner = "your-org"
-name = "your-repo"
 
 [calendar]
 # 캘린더 연동 여부입니다. Google/Outlook의 비공개 iCal 주소 또는 로컬 .ics 파일을 사용할 수 있습니다.
@@ -147,3 +123,8 @@ holiday_dates = []
 path = "/Users/yourname/STL"
 # true면 하위 폴더를 재귀적으로 탐색합니다.
 recursive = true
+
+# 실제 관리할 Git repository를 제한하려면 설정 마법사에서 프로젝트를 선택합니다.
+# 비워 두면 root 하위 전체를 관리합니다.
+# [[repositories.projects]]
+# path = "/Users/yourname/STL/example-service"

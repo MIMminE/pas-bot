@@ -10,14 +10,13 @@ from pas_automation.features.automation import tick
 from pas_automation.features.dev_assistant import audit_jira_keys, branch_name, calendar_summary, commit_message, dashboard, evening_check, morning_briefing, pr_draft
 from pas_automation.features.doctor import run_doctor
 from pas_automation.features.health import run_health
-from pas_automation.features.github_remote_report import remote_branch_status, remote_work_report
 from pas_automation.features.jira_daily import assign_issue, format_today_items
 from pas_automation.features.repo_report import report, snapshot
 from pas_automation.features.repo_status import summarize_repositories
 from pas_automation.features.scheduler import install_schedules, schedule_status, uninstall_schedules
 from pas_automation.features.settings_import import import_settings
 from pas_automation.features.slack_test import send_test_message
-from pas_automation.integrations.github import GitHubClient
+from pas_automation.integrations.git_repos import ahead_behind, configured_repositories, discovered_repositories, snapshot_repo, status_porcelain
 from pas_automation.integrations.slack import list_channels
 from pas_automation.runtime_env import load_env_file
 
@@ -44,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     slack = subparsers.add_parser("slack", help="Slack 알림")
     slack_sub = slack.add_subparsers(dest="command", required=True)
-    slack_test = slack_sub.add_parser("test", help="Slack 웹훅 테스트 메시지 전송")
+    slack_test = slack_sub.add_parser("test", help="Slack 테스트 메시지 전송")
     slack_test.add_argument("--dry-run", action="store_true", help="실제 전송 없이 메시지만 확인")
     slack_test.add_argument(
         "--destination",
@@ -68,17 +67,9 @@ def build_parser() -> argparse.ArgumentParser:
     repo_status.add_argument("--send-slack", action="store_true", help="Slack으로 실제 전송")
     repo_status.add_argument("--dry-run", action="store_true", help="외부 전송 없이 미리보기")
 
-    repo_remote = repo_sub.add_parser("remote-report", help="GitHub 원격 브랜치/커밋/PR 작업 리포트")
-    repo_remote.add_argument("--days", type=int, default=1, help="조회할 최근 일수")
-    repo_remote.add_argument("--send-slack", action="store_true", help="Slack으로 실제 전송")
-    repo_remote.add_argument("--dry-run", action="store_true", help="외부 전송 없이 미리보기")
-
-    repo_remote_status = repo_sub.add_parser("remote-status", help="GitHub 원격 브랜치 리베이스/PR 상태 점검")
-    repo_remote_status.add_argument("--send-slack", action="store_true", help="Slack으로 실제 전송")
-    repo_remote_status.add_argument("--dry-run", action="store_true", help="외부 전송 없이 미리보기")
-
-    repo_remote_list = repo_sub.add_parser("remote-list", help="GitHub 토큰으로 접근 가능한 repository 목록 조회")
-    repo_remote_list.add_argument("--format", choices=["text", "tsv"], default="text", help="출력 형식")
+    repo_list = repo_sub.add_parser("list", help="설정된 root 하위 Git repository 목록 조회")
+    repo_list.add_argument("--format", choices=["text", "tsv"], default="text", help="출력 형식")
+    repo_list.add_argument("--all", action="store_true", help="관리 대상 선택값을 무시하고 root 하위 전체 조회")
 
     automation = subparsers.add_parser("automation", help="스케줄러가 호출하는 자동 실행")
     automation_sub = automation.add_subparsers(dest="command", required=True)
@@ -211,24 +202,34 @@ def main(argv: list[str] | None = None) -> int:
         print(summarize_repositories(config, send_slack=args.send_slack, dry_run=args.dry_run))
         return 0
 
-    if args.area == "repo" and args.command == "remote-report":
-        print(remote_work_report(config, days=args.days, send_slack=args.send_slack, dry_run=args.dry_run))
-        return 0
-
-    if args.area == "repo" and args.command == "remote-status":
-        print(remote_branch_status(config, send_slack=args.send_slack, dry_run=args.dry_run))
-        return 0
-
-    if args.area == "repo" and args.command == "remote-list":
-        if not config.github.token:
-            print("GitHub 토큰 없음: repository 목록을 불러올 수 없습니다.")
-            return 0
-        repos = GitHubClient(config.github).list_repositories()
+    if args.area == "repo" and args.command == "list":
+        repos = discovered_repositories(config) if args.all else configured_repositories(config)
         if args.format == "tsv":
-            print("\n".join(f"{item.owner}\t{item.name}\t{item.private}\t{item.default_branch}\t{item.url}" for item in repos))
+            rows = []
+            for repo_path in repos:
+                snapshot_item = snapshot_repo(repo_path)
+                dirty = len(status_porcelain(repo_path))
+                ahead, behind = ahead_behind(repo_path)
+                rows.append(
+                    "\t".join(
+                        [
+                            str(repo_path),
+                            repo_path.name,
+                            snapshot_item.branch,
+                            "" if ahead is None else str(ahead),
+                            "" if behind is None else str(behind),
+                            str(dirty),
+                        ]
+                    )
+                )
+            print("\n".join(rows))
         else:
-            print("GitHub repository 목록")
-            print("\n".join(f"- {item.full_name} ({'private' if item.private else 'public'})" for item in repos))
+            print("Git repository 목록")
+            for repo_path in repos:
+                snapshot_item = snapshot_repo(repo_path)
+                ahead, behind = ahead_behind(repo_path)
+                sync = "upstream 없음" if ahead is None or behind is None else f"ahead {ahead}, behind {behind}"
+                print(f"- {repo_path.name} [{snapshot_item.branch}] {sync} | {repo_path}")
         return 0
 
     if args.area == "automation" and args.command == "tick":

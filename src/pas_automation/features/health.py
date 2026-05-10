@@ -4,8 +4,9 @@ from dataclasses import dataclass
 
 from pas_automation.config import AppConfig
 from pas_automation.http import json_request
+from pas_automation.integrations.git_repos import configured_repositories
 from pas_automation.integrations.jira import JiraClient
-from pas_automation.integrations.slack import SlackWebhook, header_block, list_channels, section_block
+from pas_automation.integrations.slack import SlackClient, header_block, list_channels, section_block
 
 
 @dataclass(frozen=True)
@@ -37,7 +38,7 @@ def _required_setting_checks(config: AppConfig) -> list[HealthCheck]:
         _required("jira.api_token", config.jira.api_token, "Jira API 토큰 필요"),
         _required("slack.alerts", config.slack.destination_configured("alerts"), "실패 알림 Slack 목적지 권장"),
         _required("slack.jira_daily", config.slack.destination_configured("jira_daily"), "Jira 브리핑 Slack 목적지 필요"),
-        _optional("github.token", config.github.token, "private repository/PR 조회 시 필요"),
+        _required("repositories.roots", bool(config.repo_roots), "로컬 Git repository root 필요"),
         _optional("openai.api_key", config.openai.api_key, "AI 초안 생성 시 필요"),
     ]
 
@@ -46,7 +47,7 @@ def _connection_checks(config: AppConfig) -> list[HealthCheck]:
     checks = [
         _check_jira(config),
         _check_slack(config, "alerts"),
-        _check_github(config),
+        _check_git_roots(config),
         _check_openai(config),
     ]
     return checks
@@ -79,27 +80,25 @@ def _check_slack(config: AppConfig, destination: str) -> HealthCheck:
             return HealthCheck(f"slack.{destination}", "OK", f"Slack OAuth 연결 정상: 채널 {count}개 조회")
         except Exception as exc:
             return HealthCheck(f"slack.{destination}", "FAIL", str(exc))
-    return HealthCheck(f"slack.{destination}", "OK", "Slack 웹훅 형식 확인")
+    return HealthCheck(f"slack.{destination}", "OK", "Slack 설정 확인")
 
 
-def _check_github(config: AppConfig) -> HealthCheck:
-    if not config.github.token:
-        return HealthCheck("github.connection", "WARN", "GitHub 토큰 없음")
-    try:
-        payload = json_request(
-            "GET",
-            "https://api.github.com/user",
-            headers={
-                "Authorization": f"Bearer {config.github.token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
-            timeout=20,
-        )
-        login = payload.get("login", "unknown") if isinstance(payload, dict) else "unknown"
-        return HealthCheck("github.connection", "OK", f"GitHub API 연결 정상: {login}")
-    except Exception as exc:
-        return HealthCheck("github.connection", "FAIL", str(exc))
+def _check_git_roots(config: AppConfig) -> HealthCheck:
+    if not config.repo_roots:
+        return HealthCheck("git.roots", "FAIL", "로컬 Git repository root 설정 필요")
+    missing = []
+    for root in config.repo_roots:
+        path = root.path.expanduser()
+        if not path.exists():
+            missing.append(str(path))
+            continue
+    if missing:
+        return HealthCheck("git.roots", "WARN", f"존재하지 않는 root: {', '.join(missing[:3])}")
+    total = len(configured_repositories(config))
+    if total == 0:
+        return HealthCheck("git.roots", "WARN", "설정된 root에서 Git repository를 찾지 못했습니다")
+    scope = "관리 대상" if config.repo_projects else "root 하위 전체"
+    return HealthCheck("git.roots", "OK", f"{scope} Git repository {total}개 확인")
 
 
 def _check_openai(config: AppConfig) -> HealthCheck:
@@ -136,7 +135,7 @@ def _send_alert(config: AppConfig, checks: list[HealthCheck]) -> None:
     if not problems:
         return
     text = "\n".join(f"- [{item.status}] {item.name}: {item.detail}" for item in problems[:12])
-    SlackWebhook(config.slack, destination="alerts").send(
+    SlackClient(config.slack, destination="alerts").send(
         "PAS API 헬스체크 경고",
         blocks=[
             header_block("PAS API 헬스체크 경고"),

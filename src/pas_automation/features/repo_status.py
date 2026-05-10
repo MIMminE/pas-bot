@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pas_automation.config import AppConfig
-from pas_automation.integrations.git_repos import ahead_behind, discover_repositories, snapshot_repo, status_porcelain
-from pas_automation.integrations.slack import SlackWebhook, context_block, divider_block, fields_block, header_block, section_block
+from pas_automation.integrations.git_repos import ahead_behind, configured_repositories, snapshot_repo, status_porcelain
+from pas_automation.integrations.slack import SlackClient, context_block, divider_block, fields_block, header_block, section_block
 
 
 @dataclass(frozen=True)
@@ -25,26 +25,25 @@ def summarize_repositories(config: AppConfig, *, send_slack: bool, dry_run: bool
     if dry_run:
         return "[dry-run]\n" + message
     if send_slack:
-        SlackWebhook(config.slack, destination="git_status").send(message, blocks=repo_status_blocks(statuses))
+        SlackClient(config.slack, destination="git_status").send(message, blocks=repo_status_blocks(statuses))
     return message
 
 
 def collect_repo_status(config: AppConfig) -> list[RepoStatus]:
     statuses: list[RepoStatus] = []
-    for root in config.repo_roots:
-        for repo in discover_repositories(root.path, recursive=root.recursive):
-            snapshot = snapshot_repo(repo)
-            dirty = status_porcelain(repo)
-            ahead, behind = ahead_behind(repo)
-            statuses.append(
-                RepoStatus(
-                    path=repo,
-                    branch=snapshot.branch,
-                    dirty_count=len(dirty),
-                    ahead=ahead,
-                    behind=behind,
-                )
+    for repo in configured_repositories(config):
+        snapshot = snapshot_repo(repo)
+        dirty = status_porcelain(repo)
+        ahead, behind = ahead_behind(repo)
+        statuses.append(
+            RepoStatus(
+                path=repo,
+                branch=snapshot.branch,
+                dirty_count=len(dirty),
+                ahead=ahead,
+                behind=behind,
             )
+        )
     return sorted(statuses, key=lambda item: str(item.path).lower())
 
 
@@ -57,7 +56,7 @@ def format_repo_status(statuses: list[RepoStatus]) -> str:
     behind_count = sum(1 for item in statuses if item.behind)
     lines = [
         "Git repository 상태",
-        f"전체 {len(statuses)}개, 변경 있음 {dirty_count}개, push 필요 {ahead_count}개, pull 확인 {behind_count}개",
+        f"전체 {len(statuses)}개, 변경 있음 {dirty_count}개, push 필요 {ahead_count}개, rebase/pull 확인 {behind_count}개",
         "",
     ]
     for item in statuses:
@@ -67,7 +66,7 @@ def format_repo_status(statuses: list[RepoStatus]) -> str:
         if item.ahead:
             markers.append(f"push +{item.ahead}")
         if item.behind:
-            markers.append(f"pull -{item.behind}")
+            markers.append(f"rebase/pull -{item.behind}")
         if not markers:
             markers.append("clean")
         lines.append(f"- {item.path.name} [{item.branch}] {', '.join(markers)}")
@@ -88,7 +87,7 @@ def repo_status_blocks(statuses: list[RepoStatus]) -> list[dict]:
                 f"*전체*\n{len(statuses)}개",
                 f"*변경 있음*\n{dirty_count}개",
                 f"*push 필요*\n{ahead_count}개",
-                f"*pull 확인*\n{behind_count}개",
+                f"*rebase/pull 확인*\n{behind_count}개",
             ]
         ),
         divider_block(),
@@ -103,7 +102,7 @@ def repo_status_blocks(statuses: list[RepoStatus]) -> list[dict]:
         if item.ahead:
             markers.append(f"`push +{item.ahead}`")
         if item.behind:
-            markers.append(f"`pull -{item.behind}`")
+            markers.append(f"`rebase/pull -{item.behind}`")
         blocks.append(section_block(f"*{item.path.name}* `{item.branch}`\n{' '.join(markers)}\n`{item.path}`"))
     if clean:
         blocks.append(context_block(f"clean 상태 repository: {clean}개"))
