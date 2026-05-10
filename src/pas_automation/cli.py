@@ -9,6 +9,7 @@ from pas_automation.features.assignees import list_assignees
 from pas_automation.features.automation import tick
 from pas_automation.features.dev_assistant import audit_jira_keys, branch_name, commit_message, dashboard, evening_check, morning_briefing, pr_draft
 from pas_automation.features.doctor import run_doctor
+from pas_automation.features.health import run_health
 from pas_automation.features.jira_daily import assign_issue, format_today_items
 from pas_automation.features.repo_report import report, snapshot
 from pas_automation.features.repo_status import summarize_repositories
@@ -115,6 +116,9 @@ def build_parser() -> argparse.ArgumentParser:
     status = subparsers.add_parser("status", help="Local app status and diagnostics")
     status_sub = status.add_subparsers(dest="command", required=True)
     status_sub.add_parser("doctor", help="Check configuration and local repository roots")
+    health = status_sub.add_parser("health", help="Check API credentials and connections")
+    health.add_argument("--no-network", action="store_true", help="Only check required settings")
+    health.add_argument("--send-alert", action="store_true", help="Send failures to Slack alerts destination")
 
     schedule = subparsers.add_parser("schedule", help="Install or remove OS scheduled tasks")
     schedule_sub = schedule.add_subparsers(dest="command", required=True)
@@ -234,6 +238,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.area == "status" and args.command == "doctor":
         print(run_doctor(config))
+        return 0
+
+    if args.area == "status" and args.command == "health":
+        print(run_health(config, check_connections=not args.no_network, send_alert=args.send_alert))
         return 0
 
     if args.area == "schedule" and args.command == "install":

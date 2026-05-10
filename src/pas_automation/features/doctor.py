@@ -18,6 +18,7 @@ def run_doctor(config: AppConfig) -> str:
         _secret_check("slack.webhooks.jira_daily", bool(config.slack.webhook_for("jira_daily")), "Jira 브리핑 목적지"),
         _secret_check("slack.webhooks.git_report", bool(config.slack.webhook_for("git_report")), "Git 보고서 목적지"),
         _secret_check("slack.webhooks.git_status", bool(config.slack.webhook_for("git_status")), "Git 상태 목적지"),
+        _secret_check("slack.webhooks.alerts", bool(config.slack.webhook_for("alerts")), "실패/누락 알림 목적지 권장"),
         _secret_check("openai.api_key", bool(config.openai.api_key), "선택 사항: AI 보고서 사용 시 필요"),
         _check("assignees.json", config.assignees_path.exists(), str(config.assignees_path)),
     ]

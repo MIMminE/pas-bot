@@ -113,6 +113,8 @@ Windows PowerShell:
 
 ```powershell
 .\scripts\run-pas.ps1 status doctor
+.\scripts\run-pas.ps1 status health --no-network
+.\scripts\run-pas.ps1 status health --send-alert
 .\scripts\run-pas.ps1 slack test
 .\scripts\run-pas.ps1 slack test --destination jira_daily
 .\scripts\run-pas.ps1 jira today --send-slack
@@ -143,6 +145,8 @@ macOS:
 
 ```bash
 scripts/run-pas.sh status doctor
+scripts/run-pas.sh status health --no-network
+scripts/run-pas.sh status health --send-alert
 scripts/run-pas.sh slack test
 scripts/run-pas.sh slack test --destination jira_daily
 scripts/run-pas.sh jira today --send-slack
