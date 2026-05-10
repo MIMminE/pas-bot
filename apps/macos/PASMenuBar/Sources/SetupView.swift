@@ -96,8 +96,8 @@ struct SetupView: View {
                     HStack {
                         Button(isLoadingSlackChannels ? "불러오는 중..." : "채널 목록 불러오기") {
                             isLoadingSlackChannels = true
-                            Task {
-                                slackChannels = await runner.loadSlackChannels(settings: settings)
+                            runner.loadSlackChannels(settings: settings) { channels in
+                                slackChannels = channels
                                 isLoadingSlackChannels = false
                             }
                         }
@@ -205,8 +205,8 @@ struct SetupView: View {
                 HStack {
                     Button(isLoadingGitHubRepositories ? "불러오는 중..." : "GitHub 레포 목록 불러오기") {
                         isLoadingGitHubRepositories = true
-                        Task {
-                            githubRepositories = await runner.loadGitHubRepositories(settings: settings)
+                        runner.loadGitHubRepositories(settings: settings) { repositories in
+                            githubRepositories = repositories
                             isLoadingGitHubRepositories = false
                         }
                     }

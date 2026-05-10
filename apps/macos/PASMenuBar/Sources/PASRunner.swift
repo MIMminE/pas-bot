@@ -13,7 +13,7 @@ final class PASRunner: ObservableObject {
     private var outputWindow: NSWindow?
 
     init() {
-        try? prepareSupportFiles()
+        try? Self.prepareSupportFiles()
         DispatchQueue.main.async { [weak self] in
             self?.openSetupWindow()
         }
@@ -26,7 +26,7 @@ final class PASRunner: ObservableObject {
 
         Task.detached { [weak self] in
             guard let self else { return }
-            let result = self.execute(arguments)
+            let result = Self.execute(arguments)
             await MainActor.run {
                 self.lastOutput = result.output
                 self.status = result.succeeded ? "성공" : "실패: \(result.summary)"
@@ -42,7 +42,7 @@ final class PASRunner: ObservableObject {
     }
 
     func openSupportDirectory() {
-        let directory = supportDirectory()
+        let directory = Self.supportDirectory()
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         NSWorkspace.shared.open(directory)
     }
@@ -144,7 +144,7 @@ final class PASRunner: ObservableObject {
 
     func saveSettings(_ settings: PASSettings) {
         do {
-            try prepareSupportFiles()
+            try Self.prepareSupportFiles()
             try writeConfig(settings)
             try markSetupCompleted()
             status = "설정을 저장했습니다"
@@ -156,22 +156,48 @@ final class PASRunner: ObservableObject {
         }
     }
 
-    func loadSlackChannels(settings: PASSettings) async -> [SlackChannel] {
+    func loadSlackChannels(settings: PASSettings, completion: @escaping ([SlackChannel]) -> Void) {
         saveSettings(settings)
         status = "Slack 채널 목록을 불러오는 중..."
-        let result = await Task.detached { [weak self] in
-            guard let self else {
-                return (succeeded: false, output: "", summary: "PAS 실행기가 종료되었습니다.")
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Self.execute(["slack", "channels", "--format", "tsv"])
+            let channels = Self.parseSlackChannels(result.output)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.lastOutput = result.output
+                self.status = result.succeeded ? "Slack 채널 목록을 불러왔습니다" : "Slack 채널 조회 실패"
+                if !result.succeeded {
+                    self.openOutputWindow(title: "Slack 채널 조회 오류", output: result.output.isEmpty ? result.summary : result.output)
+                    completion([])
+                    return
+                }
+                completion(channels)
             }
-            return self.execute(["slack", "channels", "--format", "tsv"])
-        }.value
-        lastOutput = result.output
-        status = result.succeeded ? "Slack 채널 목록을 불러왔습니다" : "Slack 채널 조회 실패"
-        if !result.succeeded {
-            openOutputWindow(title: "Slack 채널 조회 오류", output: result.output.isEmpty ? result.summary : result.output)
-            return []
         }
-        return result.output
+    }
+
+    func loadGitHubRepositories(settings: PASSettings, completion: @escaping ([GitHubRepositoryOption]) -> Void) {
+        saveSettings(settings)
+        status = "GitHub repository 목록을 불러오는 중..."
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Self.execute(["repo", "remote-list", "--format", "tsv"])
+            let repositories = Self.parseGitHubRepositories(result.output)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.lastOutput = result.output
+                self.status = result.succeeded ? "GitHub repository 목록을 불러왔습니다" : "GitHub repository 조회 실패"
+                if !result.succeeded {
+                    self.openOutputWindow(title: "GitHub repository 조회 오류", output: result.output.isEmpty ? result.summary : result.output)
+                    completion([])
+                    return
+                }
+                completion(repositories)
+            }
+        }
+    }
+
+    private nonisolated static func parseSlackChannels(_ output: String) -> [SlackChannel] {
+        output
             .split(separator: "\n")
             .compactMap { line in
                 let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
@@ -181,22 +207,8 @@ final class PASRunner: ObservableObject {
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    func loadGitHubRepositories(settings: PASSettings) async -> [GitHubRepositoryOption] {
-        saveSettings(settings)
-        status = "GitHub repository 목록을 불러오는 중..."
-        let result = await Task.detached { [weak self] in
-            guard let self else {
-                return (succeeded: false, output: "", summary: "PAS 실행기가 종료되었습니다.")
-            }
-            return self.execute(["repo", "remote-list", "--format", "tsv"])
-        }.value
-        lastOutput = result.output
-        status = result.succeeded ? "GitHub repository 목록을 불러왔습니다" : "GitHub repository 조회 실패"
-        if !result.succeeded {
-            openOutputWindow(title: "GitHub repository 조회 오류", output: result.output.isEmpty ? result.summary : result.output)
-            return []
-        }
-        return result.output
+    private nonisolated static func parseGitHubRepositories(_ output: String) -> [GitHubRepositoryOption] {
+        output
             .split(separator: "\n")
             .compactMap { line in
                 let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
@@ -212,7 +224,7 @@ final class PASRunner: ObservableObject {
             .sorted { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
     }
 
-    private nonisolated func execute(_ arguments: [String]) -> (succeeded: Bool, output: String, summary: String) {
+    private nonisolated static func execute(_ arguments: [String]) -> (succeeded: Bool, output: String, summary: String) {
         let process = Process()
         let stdout = Pipe()
         let stderr = Pipe()
@@ -276,7 +288,7 @@ final class PASRunner: ObservableObject {
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
-    private nonisolated func prepareSupportFiles() throws {
+    private nonisolated static func prepareSupportFiles() throws {
         let fileManager = FileManager.default
         let directory = supportDirectory()
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -288,7 +300,7 @@ final class PASRunner: ObservableObject {
         createStateIfNeeded()
     }
 
-    private nonisolated func copyExampleIfNeeded(resourcePath: String, to destination: URL) {
+    private nonisolated static func copyExampleIfNeeded(resourcePath: String, to destination: URL) {
         let fileManager = FileManager.default
         guard !fileManager.fileExists(atPath: destination.path) else { return }
         guard let source = Bundle.main.resourceURL?.appendingPathComponent(resourcePath) else { return }
@@ -296,40 +308,40 @@ final class PASRunner: ObservableObject {
         try? fileManager.copyItem(at: source, to: destination)
     }
 
-    private nonisolated func pasExecutable() -> (url: URL, prefixArguments: [String]) {
+    private nonisolated static func pasExecutable() -> (url: URL, prefixArguments: [String]) {
         if let bundled = Bundle.main.url(forResource: "pas", withExtension: nil, subdirectory: "bin") {
             return (bundled, [])
         }
         return (URL(fileURLWithPath: "/usr/bin/env"), ["pas"])
     }
 
-    private nonisolated func supportDirectory() -> URL {
+    private nonisolated static func supportDirectory() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         return base.appendingPathComponent("PAS", isDirectory: true)
     }
 
-    private nonisolated func configURL() -> URL {
+    private nonisolated static func configURL() -> URL {
         supportDirectory().appendingPathComponent("config.toml")
     }
 
-    private nonisolated func assigneesURL() -> URL {
+    private nonisolated static func assigneesURL() -> URL {
         supportDirectory().appendingPathComponent("assignees.json")
     }
 
-    private nonisolated func logsDirectory() -> URL {
+    private nonisolated static func logsDirectory() -> URL {
         supportDirectory().appendingPathComponent("logs", isDirectory: true)
     }
 
-    private nonisolated func snapshotsDirectory() -> URL {
+    private nonisolated static func snapshotsDirectory() -> URL {
         supportDirectory().appendingPathComponent("snapshots", isDirectory: true)
     }
 
-    private nonisolated func stateURL() -> URL {
+    private nonisolated static func stateURL() -> URL {
         supportDirectory().appendingPathComponent("state.json")
     }
 
-    private nonisolated func createStateIfNeeded() {
+    private nonisolated static func createStateIfNeeded() {
         let destination = stateURL()
         guard !FileManager.default.fileExists(atPath: destination.path) else { return }
         let payload = """
@@ -352,11 +364,11 @@ final class PASRunner: ObservableObject {
           "last_runs": {}
         }
         """
-        try payload.write(to: stateURL(), atomically: true, encoding: .utf8)
+        try payload.write(to: Self.stateURL(), atomically: true, encoding: .utf8)
     }
 
     private func readConfigValue(section: String, key: String) -> String {
-        guard let text = try? String(contentsOf: configURL(), encoding: .utf8) else { return "" }
+        guard let text = try? String(contentsOf: Self.configURL(), encoding: .utf8) else { return "" }
         var currentSection = ""
         for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -382,7 +394,7 @@ final class PASRunner: ObservableObject {
     }
 
     private func readGitHubRepositories() -> [GitHubRepositoryOption] {
-        guard let text = try? String(contentsOf: configURL(), encoding: .utf8) else { return [] }
+        guard let text = try? String(contentsOf: Self.configURL(), encoding: .utf8) else { return [] }
         var repositories: [GitHubRepositoryOption] = []
         var inRepository = false
         var owner = ""
@@ -428,7 +440,7 @@ final class PASRunner: ObservableObject {
     }
 
     private func writeConfig(_ settings: PASSettings) throws {
-        guard var text = try? String(contentsOf: configURL(), encoding: .utf8) else { return }
+        guard var text = try? String(contentsOf: Self.configURL(), encoding: .utf8) else { return }
         text = replaceConfigValue(text, section: "general", key: "git_author", value: settings.gitAuthor)
         text = replaceConfigValue(text, section: "general", key: "work_end_time", value: settings.workEndTime)
         text = replaceConfigValue(text, section: "jira", key: "base_url", value: settings.jiraBaseURL)
@@ -470,7 +482,7 @@ final class PASRunner: ObservableObject {
         text = replaceConfigBoolValue(text, section: "schedules.git_status", key: "enabled", value: settings.gitStatusScheduleEnabled)
         text = replaceConfigValue(text, section: "schedules.git_status", key: "time", value: settings.gitStatusScheduleTimeOrDefault)
         text = replaceConfigBoolValue(text, section: "schedules.git_status", key: "catch_up_if_missed", value: settings.gitStatusCatchUp)
-        try text.write(to: configURL(), atomically: true, encoding: .utf8)
+        try text.write(to: Self.configURL(), atomically: true, encoding: .utf8)
     }
 
     private func replaceConfigValue(_ text: String, section: String, key: String, value: String) -> String {
