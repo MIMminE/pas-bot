@@ -163,6 +163,7 @@ struct ChannelPicker: View {
 struct LocalRepositoryProjectPicker: View {
     let repositories: [LocalRepositoryOption]
     @Binding var selectedPaths: Set<String>
+    @Binding var baseBranches: [String: String]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -175,6 +176,11 @@ struct LocalRepositoryProjectPicker: View {
 
                 Button("전체 선택") {
                     selectedPaths = Set(repositories.map(\.path))
+                    for repo in repositories {
+                        if (baseBranches[repo.path] ?? "").isEmpty {
+                            baseBranches[repo.path] = repo.baseBranch
+                        }
+                    }
                 }
 
                 Button("전체 해제") {
@@ -189,6 +195,9 @@ struct LocalRepositoryProjectPicker: View {
                         set: { isSelected in
                             if isSelected {
                                 selectedPaths.insert(repo.path)
+                                if (baseBranches[repo.path] ?? "").isEmpty {
+                                    baseBranches[repo.path] = repo.baseBranch
+                                }
                             } else {
                                 selectedPaths.remove(repo.path)
                             }
@@ -210,6 +219,26 @@ struct LocalRepositoryProjectPicker: View {
                                         .foregroundStyle(.orange)
                                 }
                                 Spacer()
+                            }
+
+                            HStack(spacing: 6) {
+                                Text("기준")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                TextField(
+                                    repo.baseBranch.isEmpty ? "dev/main" : repo.baseBranch,
+                                    text: Binding(
+                                        get: { baseBranches[repo.path] ?? repo.baseBranch },
+                                        set: { baseBranches[repo.path] = $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                                    )
+                                )
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 120)
+                                .disabled(!selectedPaths.contains(repo.path))
+
+                                Text(repo.baseLabel)
+                                    .font(.caption)
+                                    .foregroundStyle(repo.needsBaseRebase ? .red : .secondary)
                             }
 
                             Text("\(repo.syncLabel) | \(repo.path)")

@@ -169,6 +169,7 @@ struct RepositoryDashboardRow: View {
 
                     HStack(spacing: 8) {
                         RepoStatusBadge(text: repo.syncLabel, color: statusColor)
+                        RepoStatusBadge(text: repo.baseLabel, color: repo.needsBaseRebase ? .red : .blue)
                         if repo.dirtyCount > 0 {
                             RepoStatusBadge(text: "변경 \(repo.dirtyCount)", color: .orange)
                         }
@@ -217,8 +218,11 @@ struct RepositoryDashboardRow: View {
         if repo.isProtectedWorkflowBranch {
             return .red
         }
+        if repo.needsBaseRebase {
+            return .red
+        }
         if !repo.isJiraWorkBranch {
-            return .orange
+            return repo.isWorkingBranch ? .orange : .green
         }
         if repo.needsRebase {
             return .red
@@ -239,8 +243,11 @@ struct RepositoryDashboardRow: View {
         if repo.isProtectedWorkflowBranch {
             return "lock.fill"
         }
+        if repo.needsBaseRebase {
+            return "arrow.triangle.merge"
+        }
         if !repo.isJiraWorkBranch {
-            return "number"
+            return repo.isWorkingBranch ? "number" : "checkmark.seal.fill"
         }
         if repo.needsRebase {
             return "arrow.triangle.merge"
@@ -261,8 +268,11 @@ struct RepositoryDashboardRow: View {
         if repo.isProtectedWorkflowBranch {
             return "기준 브랜치 보호"
         }
+        if repo.needsBaseRebase {
+            return "기준 브랜치 rebase 필요"
+        }
         if !repo.isJiraWorkBranch {
-            return "Jira 키 브랜치 필요"
+            return repo.isWorkingBranch ? "Jira 키 브랜치 필요" : "기준 브랜치"
         }
         if repo.dirtyCount > 0 {
             return "로컬 변경 정리"
@@ -282,11 +292,17 @@ struct RepositoryDashboardRow: View {
     private var guidanceMessage: String {
         let ahead = repo.ahead ?? 0
         let behind = repo.behind ?? 0
+        let baseBehind = repo.baseBehind ?? 0
         if repo.isProtectedWorkflowBranch {
-            return "main/dev 계열에는 직접 push하지 않습니다. Jira 일감에서 작업 브랜치를 만든 뒤 PR로 반영하세요."
+            return "설정된 기준 브랜치가 아닌 보호 브랜치입니다. Jira 일감에서 작업 브랜치를 만든 뒤 PR로 반영하세요."
+        }
+        if repo.needsBaseRebase {
+            return "현재 작업 브랜치가 기준 \(repo.baseBranch)보다 \(baseBehind)커밋 뒤처졌습니다. Fetch 후 Rebase로 정렬하세요."
         }
         if !repo.isJiraWorkBranch {
-            return "브랜치 이름에 LMS-123 같은 Jira 키가 필요합니다. Jira 일감 시작 흐름으로 브랜치를 생성하세요."
+            return repo.isWorkingBranch
+                ? "브랜치 이름에 LMS-123 같은 Jira 키가 필요합니다. Jira 일감 시작 흐름으로 브랜치를 생성하세요."
+                : "이 repository의 기준 브랜치입니다. 새 작업은 Jira 일감 시작 흐름으로 작업 브랜치를 생성하세요."
         }
         if repo.dirtyCount > 0 && behind > 0 {
             return "1. 변경사항 commit/stash -> 2. Fetch -> 3. \(ahead > 0 ? "Rebase" : "Pull") -> 4. 테스트 후 Push"

@@ -23,7 +23,10 @@ struct PASSettingsStore {
             gitAuthor: readConfigValue(section: "general", key: "git_author"),
             workEndTime: readConfigValue(section: "general", key: "work_end_time"),
             cloneRoot: readConfigValue(section: "developer", key: "clone_root"),
-            repoProjectPaths: Set(readRepositoryProjects()),
+            repoProjectPaths: Set(readRepositoryProjects().map(\.path)),
+            repoProjectBaseBranches: Dictionary(
+                uniqueKeysWithValues: readRepositoryProjects().map { ($0.path, $0.baseBranch) }
+            ),
             openAIKey: readConfigValue(section: "openai", key: "api_key"),
             jiraDailyEnabled: readBoolConfigValue(section: "feature_groups", key: "jira", defaultValue: true),
             gitReportEnabled: readBoolConfigValue(section: "feature_groups", key: "git", defaultValue: true),
@@ -87,17 +90,24 @@ struct PASSettingsStore {
         return value.lowercased() == "true"
     }
 
-    private func readRepositoryProjects() -> [String] {
+    private struct RepositoryProjectConfig {
+        let path: String
+        let baseBranch: String
+    }
+
+    private func readRepositoryProjects() -> [RepositoryProjectConfig] {
         guard let text = try? String(contentsOf: configURL, encoding: .utf8) else { return [] }
-        var projects: [String] = []
+        var projects: [RepositoryProjectConfig] = []
         var inProject = false
         var path = ""
+        var baseBranch = ""
 
         func flush() {
             if !path.isEmpty {
-                projects.append(path)
+                projects.append(RepositoryProjectConfig(path: path, baseBranch: baseBranch))
             }
             path = ""
+            baseBranch = ""
         }
 
         for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
@@ -121,6 +131,8 @@ struct PASSettingsStore {
             let value = unquote(String(trimmed[trimmed.index(after: separator)...].trimmingCharacters(in: .whitespaces)))
             if key == "path" {
                 path = value
+            } else if key == "base_branch" {
+                baseBranch = value
             }
         }
         if inProject {
@@ -154,7 +166,11 @@ struct PASSettingsStore {
         text = removeConfigSection(text, section: "github")
         text = removeArraySection(text, section: "github.repositories")
         text = removeArraySection(text, section: "repositories.roots")
-        text = replaceRepositoryProjects(text, projectPaths: settings.repoProjectPaths)
+        text = replaceRepositoryProjects(
+            text,
+            projectPaths: settings.repoProjectPaths,
+            baseBranches: settings.repoProjectBaseBranches
+        )
         text = replaceConfigValue(text, section: "openai", key: "api_key", value: settings.openAIKey)
         text = replaceConfigBoolValue(text, section: "feature_groups", key: "jira", value: settings.jiraDailyEnabled)
         text = replaceConfigBoolValue(text, section: "feature_groups", key: "git", value: settings.gitReportEnabled || settings.gitStatusEnabled)
@@ -238,7 +254,7 @@ struct PASSettingsStore {
         return output.joined(separator: "\n")
     }
 
-    private func replaceRepositoryProjects(_ text: String, projectPaths: Set<String>) -> String {
+    private func replaceRepositoryProjects(_ text: String, projectPaths: Set<String>, baseBranches: [String: String]) -> String {
         let lines = text.components(separatedBy: .newlines)
         var output: [String] = []
         var index = 0
@@ -262,10 +278,12 @@ struct PASSettingsStore {
         let rendered = projectPaths.sorted().compactMap { rawPath -> String? in
             let path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !path.isEmpty else { return nil }
+            let baseBranch = (baseBranches[path] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let baseLine = baseBranch.isEmpty ? "" : "\nbase_branch = \"\(escapeToml(baseBranch))\""
             return """
 
             [[repositories.projects]]
-            path = "\(escapeToml(path))"
+            path = "\(escapeToml(path))"\(baseLine)
             """
         }
         if !rendered.isEmpty {

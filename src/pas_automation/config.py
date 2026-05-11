@@ -117,6 +117,7 @@ class ScheduleConfig:
 @dataclass(frozen=True)
 class RepoProject:
     path: Path
+    base_branch: str = ""
 
 
 @dataclass(frozen=True)
@@ -156,7 +157,10 @@ def load_config(path: str | Path) -> AppConfig:
 
     repo_projects_raw = raw.get("repositories", {}).get("projects", [])
     repo_projects = [
-        RepoProject(path=Path(item["path"]).expanduser())
+        RepoProject(
+            path=Path(item["path"]).expanduser(),
+            base_branch=str(item.get("base_branch", "")).strip(),
+        )
         for item in repo_projects_raw
         if item.get("path")
     ]

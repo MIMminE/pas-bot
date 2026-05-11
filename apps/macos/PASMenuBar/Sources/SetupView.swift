@@ -254,7 +254,8 @@ struct SetupView: View {
                     } else {
                         LocalRepositoryProjectPicker(
                             repositories: localRepositories,
-                            selectedPaths: $settings.repoProjectPaths
+                            selectedPaths: $settings.repoProjectPaths,
+                            baseBranches: $settings.repoProjectBaseBranches
                         )
                     }
                 }
@@ -579,6 +580,7 @@ struct SetupView: View {
                 let localPath = parseClonedPath(result.displayText)
                 if !localPath.isEmpty {
                     settings.repoProjectPaths.insert(localPath)
+                    settings.repoProjectBaseBranches[localPath] = repo.defaultBranch
                 }
             }
         }

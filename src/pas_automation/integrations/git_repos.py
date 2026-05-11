@@ -14,10 +14,31 @@ class RepoSnapshot:
     path: str
     head: str
     branch: str
+    base_branch: str
+    base_ref: str
+    base_behind: int | None
+    base_ahead: int | None
+
+
+@dataclass(frozen=True)
+class ConfiguredRepository:
+    path: Path
+    base_branch: str
 
 def configured_repositories(config) -> list[Path]:
-    selected = {item.path.expanduser().resolve() for item in getattr(config, "repo_projects", [])}
-    return sorted((path for path in selected if (path / ".git").is_dir()), key=lambda item: str(item).lower())
+    return [item.path for item in configured_repository_projects(config)]
+
+
+def configured_repository_projects(config) -> list[ConfiguredRepository]:
+    projects: dict[Path, str] = {}
+    for item in getattr(config, "repo_projects", []):
+        path = item.path.expanduser().resolve()
+        if (path / ".git").is_dir():
+            projects[path] = getattr(item, "base_branch", "").strip()
+    return [
+        ConfiguredRepository(path=path, base_branch=base_branch or default_base_branch(path))
+        for path, base_branch in sorted(projects.items(), key=lambda item: str(item[0]).lower())
+    ]
 
 
 def git(repo: Path, *args: str) -> str:
@@ -36,10 +57,21 @@ def git(repo: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
-def snapshot_repo(repo: Path) -> RepoSnapshot:
+def snapshot_repo(repo: Path, *, base_branch: str = "") -> RepoSnapshot:
     head = git(repo, "rev-parse", "HEAD")
     branch = git(repo, "branch", "--show-current") or "detached"
-    return RepoSnapshot(path=str(repo), head=head, branch=branch)
+    effective_base = base_branch.strip() or default_base_branch(repo)
+    base_ref = base_reference(repo, effective_base)
+    base_behind, base_ahead = base_divergence(repo, base_ref)
+    return RepoSnapshot(
+        path=str(repo),
+        head=head,
+        branch=branch,
+        base_branch=effective_base,
+        base_ref=base_ref,
+        base_behind=base_behind,
+        base_ahead=base_ahead,
+    )
 
 
 def can_snapshot(repo: Path) -> bool:
@@ -165,6 +197,48 @@ def push(repo: Path) -> str:
 
 def current_branch(repo: Path) -> str:
     return git(repo, "branch", "--show-current") or "detached"
+
+
+def default_base_branch(repo: Path) -> str:
+    try:
+        origin_head = git(repo, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+    except RuntimeError:
+        origin_head = ""
+    if origin_head.startswith("origin/"):
+        return origin_head.split("/", 1)[1]
+    for branch in ("dev", "develop", "development", "main", "master"):
+        if _branch_ref_exists(repo, f"refs/heads/{branch}") or _branch_ref_exists(repo, f"refs/remotes/origin/{branch}"):
+            return branch
+    return current_branch(repo)
+
+
+def base_reference(repo: Path, base_branch: str) -> str:
+    if base_branch and _branch_ref_exists(repo, f"refs/remotes/origin/{base_branch}"):
+        return f"origin/{base_branch}"
+    if base_branch and _branch_ref_exists(repo, f"refs/heads/{base_branch}"):
+        return base_branch
+    return base_branch
+
+
+def base_divergence(repo: Path, base_ref: str) -> tuple[int | None, int | None]:
+    if not base_ref:
+        return None, None
+    try:
+        counts = git(repo, "rev-list", "--left-right", "--count", f"{base_ref}...HEAD").split()
+    except RuntimeError:
+        return None, None
+    if len(counts) != 2:
+        return None, None
+    behind_base, ahead_base = int(counts[0]), int(counts[1])
+    return behind_base, ahead_base
+
+
+def _branch_ref_exists(repo: Path, ref: str) -> bool:
+    try:
+        git(repo, "show-ref", "--verify", "--quiet", ref)
+    except RuntimeError:
+        return False
+    return True
 
 
 def owner_repo(repo: Path) -> str:

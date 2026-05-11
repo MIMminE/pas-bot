@@ -36,7 +36,7 @@ from pas_automation.features.remote_repos import clone_remote_repository, format
 from pas_automation.features.scheduler import install_schedules, schedule_status, uninstall_schedules
 from pas_automation.features.settings_import import import_settings
 from pas_automation.features.slack_test import send_test_message
-from pas_automation.integrations.git_repos import ahead_behind, commits_between, configured_repositories, fetch, pull_ff_only, pull_rebase, push, require_clean_worktree, snapshot_repo, status_porcelain
+from pas_automation.integrations.git_repos import ahead_behind, commits_between, configured_repositories, configured_repository_projects, fetch, pull_ff_only, pull_rebase, push, require_clean_worktree, snapshot_repo, status_porcelain
 from pas_automation.integrations.slack import SlackClient, list_channels, section_block
 from pas_automation.runtime_env import load_env_file
 
@@ -159,7 +159,7 @@ def build_parser() -> argparse.ArgumentParser:
     dev_create_branch.add_argument("--issue-key", required=True, help="Jira 이슈 키")
     dev_create_branch.add_argument("--summary", default="", help="브랜치명에 사용할 작업 요약")
     dev_create_branch.add_argument("--prefix", default="feature", help="브랜치 prefix")
-    dev_create_branch.add_argument("--base-branch", default="dev", help="작업 브랜치를 시작할 기준 브랜치")
+    dev_create_branch.add_argument("--base-branch", default="", help="작업 브랜치를 시작할 기준 브랜치. 비우면 repository 설정값 사용")
     dev_commit = dev_sub.add_parser("commit-message", help="커밋 메시지 초안 생성")
     dev_commit.add_argument("--repo", help="대상 repository 경로")
     dev_commit.add_argument("--issue-key", help="커밋 메시지에 넣을 Jira 이슈 키")
@@ -177,7 +177,7 @@ def build_parser() -> argparse.ArgumentParser:
     dev_start.add_argument("--repo", help="작업할 관리 repository 경로. 비우면 추천 근거로 자동 선택")
     dev_start.add_argument("--summary", default="", help="브랜치명에 사용할 작업 요약")
     dev_start.add_argument("--prefix", default="feature", help="브랜치 prefix")
-    dev_start.add_argument("--base-branch", default="dev", help="작업 브랜치를 시작할 기준 브랜치")
+    dev_start.add_argument("--base-branch", default="", help="작업 브랜치를 시작할 기준 브랜치. 비우면 repository 설정값 사용")
     dev_pr_status = dev_sub.add_parser("pr-status", help="관리 repository의 열린 PR 상태 대시보드")
     dev_pr_status.add_argument("--send-slack", action="store_true", help="Slack alerts 채널로 전송")
     dev_review = dev_sub.add_parser("review-alerts", help="나에게 요청된 PR 리뷰 조회")
@@ -310,33 +310,45 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.area == "repo" and args.command == "list":
-        repos = configured_repositories(config)
+        repos = configured_repository_projects(config)
         if args.format == "tsv":
             rows = []
-            for repo_path in repos:
-                snapshot_item = snapshot_repo(repo_path)
-                dirty = len(status_porcelain(repo_path))
-                ahead, behind = ahead_behind(repo_path)
+            for repo in repos:
+                snapshot_item = snapshot_repo(repo.path, base_branch=repo.base_branch)
+                dirty = len(status_porcelain(repo.path))
+                ahead, behind = ahead_behind(repo.path)
+                is_working = snapshot_item.branch != snapshot_item.base_branch and snapshot_item.branch != "detached"
                 rows.append(
                     "\t".join(
                         [
-                            str(repo_path),
-                            repo_path.name,
+                            str(repo.path),
+                            repo.path.name,
                             snapshot_item.branch,
                             "" if ahead is None else str(ahead),
                             "" if behind is None else str(behind),
                             str(dirty),
+                            snapshot_item.base_branch,
+                            snapshot_item.base_ref,
+                            "" if snapshot_item.base_behind is None else str(snapshot_item.base_behind),
+                            "" if snapshot_item.base_ahead is None else str(snapshot_item.base_ahead),
+                            "1" if is_working else "0",
                         ]
                     )
                 )
             print("\n".join(rows))
         else:
             print("Git repository 목록")
-            for repo_path in repos:
-                snapshot_item = snapshot_repo(repo_path)
-                ahead, behind = ahead_behind(repo_path)
+            for repo in repos:
+                snapshot_item = snapshot_repo(repo.path, base_branch=repo.base_branch)
+                ahead, behind = ahead_behind(repo.path)
                 sync = "upstream 없음" if ahead is None or behind is None else f"ahead {ahead}, behind {behind}"
-                print(f"- {repo_path.name} [{snapshot_item.branch}] {sync} | {repo_path}")
+                base_sync = (
+                    "기준 비교 불가"
+                    if snapshot_item.base_behind is None
+                    else f"기준 {snapshot_item.base_ref}: behind {snapshot_item.base_behind}, ahead {snapshot_item.base_ahead}"
+                )
+                working = "작업중" if snapshot_item.branch != snapshot_item.base_branch and snapshot_item.branch != "detached" else "기준 브랜치"
+                print(f"- {repo.path.name} [{snapshot_item.branch} <- {snapshot_item.base_branch}] {working}, {sync}, {base_sync} | {repo.path}")
         return 0
 
     if args.area == "repo" and args.command == "remote-list":

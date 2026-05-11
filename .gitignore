@@ -1,5 +1,7 @@
 __pycache__/
+.pycache/
 *.py[cod]
+*.egg-info/
 .pas/
 .pas-smoke/
 .env
@@ -14,3 +16,4 @@ dist/
 *.dmg
 apps/**/bin/
 apps/**/obj/
+apps/**/.build/

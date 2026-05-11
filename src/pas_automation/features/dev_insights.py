@@ -258,7 +258,7 @@ def start_issue_work(
     repo_path: str | None = None,
     summary: str = "",
     prefix: str = "feature",
-    base_branch: str = "dev",
+    base_branch: str = "",
 ) -> str:
     issue_key = issue_key.upper()
     summary = summary or _safe_issue_summary(config, issue_key)

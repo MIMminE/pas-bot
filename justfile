@@ -1,56 +1,27 @@
-python := env_var_or_default("PYTHON_BIN", "python3")
-bundled_python := "C:\\Users\\harun\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe"
-
-windows_python := if path_exists(bundled_python) {
-    bundled_python
-} else {
-    "python"
-}
-
-py := if os() == "windows" {
-    windows_python
-} else {
-    python
-}
+python := env_var_or_default("PYTHON_BIN", ".venv/bin/python")
+py := python
 
 default:
     just --list
 
 check:
-    {{py}} -m compileall -q src
+    PYTHONPYCACHEPREFIX=.pycache {{py}} -m compileall -q src
 
 [unix]
 smoke:
     PAS_APP_DATA_DIR=.pas-smoke {{py}} -m pas_automation.cli --template-dir . --config config.example.toml slack test --dry-run
     PAS_APP_DATA_DIR=.pas-smoke {{py}} -m pas_automation.cli --template-dir . --config config.example.toml jira today --dry-run
 
-[windows]
-smoke:
-    powershell -NoProfile -Command "$env:PAS_APP_DATA_DIR='.pas-smoke'; {{py}} -m pas_automation.cli --template-dir . --config config.example.toml slack test --dry-run"
-    powershell -NoProfile -Command "$env:PAS_APP_DATA_DIR='.pas-smoke'; {{py}} -m pas_automation.cli --template-dir . --config config.example.toml jira today --dry-run"
-
-[windows]
-clean:
-    powershell -NoProfile -Command "Get-ChildItem -Recurse -Directory -Filter __pycache__ -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force; Remove-Item -Recurse -Force build, dist, .pas-smoke -ErrorAction SilentlyContinue; Remove-Item -Force *.spec -ErrorAction SilentlyContinue"
-
-[unix]
 clean:
     find . -type d -name __pycache__ -prune -exec rm -rf {} +
-    rm -rf build dist .pas-smoke *.spec
+    rm -rf .pycache build dist .pas-smoke *.spec
 
 status:
     git status --short --ignored
 
 setup:
-    {{py}} -m venv .venv
+    python3.13 -m venv .venv
 
-[windows]
-install-dev:
-    .venv\Scripts\python.exe -m pip install --upgrade pip
-    .venv\Scripts\python.exe -m pip install -e .
-    .venv\Scripts\python.exe -m pip install pyinstaller
-
-[unix]
 install-dev:
     .venv/bin/python -m pip install --upgrade pip
     .venv/bin/python -m pip install -e .
@@ -62,7 +33,3 @@ package-local:
 [unix]
 macos-app-build:
     swift build -c release --package-path apps/macos/PASMenuBar
-
-[windows]
-windows-tray-build:
-    dotnet build apps/windows/PASTray/PASTray.csproj -c Release

@@ -86,7 +86,7 @@ def create_branch(
     summary: str,
     *,
     prefix: str = "feature",
-    base_branch: str = "dev",
+    base_branch: str = "",
 ) -> str:
     _ensure_dev_tools(config)
     repo = Path(repo_path).expanduser().resolve()
@@ -105,7 +105,7 @@ def create_branch(
         suffix = f"\n{details}" if details else ""
         return f"{repo.name}: 기존 작업 브랜치로 이동\n- 브랜치: {name}{suffix}"
 
-    base = _prepare_latest_base_branch(repo, base_branch=base_branch)
+    base = _prepare_latest_base_branch(repo, base_branch=base_branch or _configured_base_branch(config, repo))
     output = git(repo, "checkout", "-b", name)
     details = output.strip()
     suffix = f"\n{details}" if details else ""
@@ -156,6 +156,13 @@ def _base_branch_candidates(base_branch: str) -> list[str]:
         seen.add(item)
         candidates.append(item)
     return candidates
+
+
+def _configured_base_branch(config: AppConfig, repo: Path) -> str:
+    for item in config.repo_projects:
+        if item.path.expanduser().resolve() == repo:
+            return item.base_branch
+    return ""
 
 
 def _remote_branch_exists(repo: Path, name: str) -> bool:

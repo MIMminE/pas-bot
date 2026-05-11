@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
-import platform
 import shutil
 
 
@@ -17,14 +16,7 @@ def app_data_dir() -> Path:
     if override:
         return Path(override).expanduser().resolve()
 
-    system = platform.system()
-    if system == "Darwin":
-        return Path.home() / "Library" / "Application Support" / APP_NAME
-    if system == "Windows":
-        base = os.environ.get("APPDATA")
-        if base:
-            return Path(base) / APP_NAME
-    return Path.home() / ".pas"
+    return Path.home() / "Library" / "Application Support" / APP_NAME
 
 
 def init_app_data(*, template_dir: str | Path | None = None) -> Path:
@@ -76,7 +68,7 @@ def read_state() -> dict:
 def write_state(state: dict) -> None:
     path = default_state_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    _write_json(path, state)
 
 
 def _copy_if_missing(source: Path, destination: Path) -> None:
@@ -94,16 +86,21 @@ def _create_state_if_missing(destination: Path) -> None:
         "last_runs": {},
         "issue_repositories": {},
     }
-    destination.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    _write_json(destination, payload)
 
 
 def _create_json_if_missing(destination: Path, payload: dict) -> None:
     if destination.exists():
         return
-    destination.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    _write_json(destination, payload)
 
 
 def _create_text_if_missing(destination: Path, payload: str) -> None:
     if destination.exists():
         return
     destination.write_text(payload, encoding="utf-8")
+
+
+def _write_json(destination: Path, payload: dict) -> None:
+    serialized = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    destination.write_text(serialized, encoding="utf-8")

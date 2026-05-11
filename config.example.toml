@@ -136,3 +136,4 @@ holiday_dates = []
 # 비워 두면 Git repository 자동화는 실행할 관리 대상이 없는 상태로 동작합니다.
 # [[repositories.projects]]
 # path = "/Users/yourname/STL/example-service"
+# base_branch = "dev"

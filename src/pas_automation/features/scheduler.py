@@ -19,33 +19,36 @@ TASK_LABELS = {
     "git_status": "Git Status",
 }
 
+SUPPORTED_SYSTEM = "Darwin"
+SYSTEM_LABEL = "macOS"
+
 
 def install_schedules(config: AppConfig) -> str:
-    system = platform.system()
-    lines = [f"PAS 스케줄 설치 - {system}"]
+    _require_macos()
+    lines = [f"PAS 스케줄 설치 - {SYSTEM_LABEL}"]
     for task, label in TASK_LABELS.items():
         schedule = config.schedules[task]
-        _uninstall_task(system, task)
+        _uninstall_launchd(task)
         if not config.features.enabled(task) or not schedule.enabled:
             lines.append(f"{label}: 비활성화 상태라 기존 등록만 제거했습니다")
             continue
-        _install_task(system, task, schedule)
+        _install_launchd(task, schedule)
         lines.append(f"{label}: {schedule.time} 등록 완료")
     return "\n".join(lines)
 
 
 def uninstall_schedules() -> str:
-    system = platform.system()
-    lines = [f"PAS 스케줄 제거 - {system}"]
+    _require_macos()
+    lines = [f"PAS 스케줄 제거 - {SYSTEM_LABEL}"]
     for task, label in TASK_LABELS.items():
-        _uninstall_task(system, task)
+        _uninstall_launchd(task)
         lines.append(f"{label}: 제거 요청 완료")
     return "\n".join(lines)
 
 
 def schedule_status(config: AppConfig) -> str:
-    system = platform.system()
-    lines = [f"PAS 스케줄 설정 상태 - {system}"]
+    _require_macos()
+    lines = [f"PAS 스케줄 설정 상태 - {SYSTEM_LABEL}"]
     for task, label in TASK_LABELS.items():
         schedule = config.schedules[task]
         feature = "켜짐" if config.features.enabled(task) else "꺼짐"
@@ -53,29 +56,18 @@ def schedule_status(config: AppConfig) -> str:
         catch_up = "켜짐" if schedule.catch_up_if_missed else "꺼짐"
         weekdays = "평일만" if schedule.weekdays_only else "매일"
         holidays = f", 제외일 {len(schedule.holiday_dates)}개" if schedule.holiday_dates else ""
-        installed = "등록됨" if _task_installed(system, task) else "미등록"
-        lines.append(f"{label}: 기능 {feature}, 스케줄 {enabled}, 시간 {schedule.time}, {weekdays}{holidays}, 놓친 실행 보정 {catch_up}, OS {installed}")
+        installed = "등록됨" if _task_installed(task) else "미등록"
+        lines.append(
+            f"{label}: 기능 {feature}, 스케줄 {enabled}, 시간 {schedule.time}, "
+            f"{weekdays}{holidays}, 놓친 실행 보정 {catch_up}, OS {installed}"
+        )
     return "\n".join(lines)
 
 
-def _install_task(system: str, task: str, schedule: ScheduleConfig) -> None:
-    if system == "Darwin":
-        _install_launchd(task, schedule)
-        return
-    if system == "Windows":
-        _install_schtasks(task, schedule)
-        return
-    raise RuntimeError(f"지원하지 않는 OS입니다: {system}")
-
-
-def _uninstall_task(system: str, task: str) -> None:
-    if system == "Darwin":
-        _uninstall_launchd(task)
-        return
-    if system == "Windows":
-        _uninstall_schtasks(task)
-        return
-    raise RuntimeError(f"지원하지 않는 OS입니다: {system}")
+def _require_macos() -> None:
+    system = platform.system()
+    if system != SUPPORTED_SYSTEM:
+        raise RuntimeError(f"지원하지 않는 OS입니다: {system}. PAS는 현재 macOS 전용입니다.")
 
 
 def _install_launchd(task: str, schedule: ScheduleConfig) -> None:
@@ -123,42 +115,8 @@ def _uninstall_launchd(task: str) -> None:
         plist.unlink()
 
 
-def _install_schtasks(task: str, schedule: ScheduleConfig) -> None:
-    command = subprocess.list2cmdline(_pas_tick_command(task))
-    subprocess.run(
-        [
-            "schtasks",
-            "/Create",
-            "/TN",
-            _windows_task_name(task),
-            "/SC",
-            "DAILY",
-            "/ST",
-            schedule.time,
-            "/TR",
-            command,
-            "/F",
-        ],
-        check=True,
-    )
-
-
-def _uninstall_schtasks(task: str) -> None:
-    subprocess.run(["schtasks", "/Delete", "/TN", _windows_task_name(task), "/F"], check=False)
-
-
-def _task_installed(system: str, task: str) -> bool:
-    if system == "Darwin":
-        return (_launch_agents_dir() / f"{_launchd_label(task)}.plist").exists()
-    if system == "Windows":
-        result = subprocess.run(
-            ["schtasks", "/Query", "/TN", _windows_task_name(task)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        return result.returncode == 0
-    return False
+def _task_installed(task: str) -> bool:
+    return (_launch_agents_dir() / f"{_launchd_label(task)}.plist").exists()
 
 
 def _launch_agents_dir() -> Path:
@@ -169,10 +127,6 @@ def _launch_agents_dir() -> Path:
 
 def _launchd_label(task: str) -> str:
     return f"com.pas.{task.replace('_', '-')}"
-
-
-def _windows_task_name(task: str) -> str:
-    return f"PAS\\{TASK_LABELS[task]}"
 
 
 def _hour_minute(value: str) -> tuple[int, int]:

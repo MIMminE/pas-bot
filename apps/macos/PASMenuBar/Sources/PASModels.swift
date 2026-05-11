@@ -30,6 +30,7 @@ struct PASSettings {
     var workEndTime: String
     var cloneRoot: String
     var repoProjectPaths: Set<String>
+    var repoProjectBaseBranches: [String: String]
     var openAIKey: String
     var jiraDailyEnabled: Bool
     var gitReportEnabled: Bool
@@ -103,6 +104,11 @@ struct LocalRepositoryOption: Identifiable, Hashable, Sendable {
     let ahead: Int?
     let behind: Int?
     let dirtyCount: Int
+    let baseBranch: String
+    let baseRef: String
+    let baseBehind: Int?
+    let baseAhead: Int?
+    let isWorkingBranch: Bool
 
     var id: String {
         path
@@ -124,6 +130,20 @@ struct LocalRepositoryOption: Identifiable, Hashable, Sendable {
         return "upstream 없음"
     }
 
+    var baseLabel: String {
+        if isWorkingBranch {
+            if let baseBehind, baseBehind > 0 {
+                return "작업중 | 기준 \(baseBranch) 대비 rebase 필요: behind \(baseBehind)"
+            }
+            return "작업중 | 기준 \(baseBranch)"
+        }
+        return "기준 브랜치 \(baseBranch)"
+    }
+
+    var needsBaseRebase: Bool {
+        isWorkingBranch && (baseBehind ?? 0) > 0
+    }
+
     var needsUpdate: Bool {
         (behind ?? 0) > 0
     }
@@ -137,12 +157,12 @@ struct LocalRepositoryOption: Identifiable, Hashable, Sendable {
     }
 
     var isProtectedWorkflowBranch: Bool {
-        ["main", "master", "dev", "develop", "development"].contains(branch.lowercased())
+        branch != baseBranch && ["main", "master", "dev", "develop", "development"].contains(branch.lowercased())
     }
 
     var isJiraWorkBranch: Bool {
         branch.range(of: #"[A-Z][A-Z0-9]+-\d+"#, options: [.regularExpression, .caseInsensitive]) != nil
-            && !isProtectedWorkflowBranch
+            && branch != baseBranch
     }
 }
 
@@ -178,4 +198,3 @@ struct IDEAppOption: Identifiable, Hashable, Sendable {
         path.isEmpty ? name : "\(name) - \(path)"
     }
 }
-

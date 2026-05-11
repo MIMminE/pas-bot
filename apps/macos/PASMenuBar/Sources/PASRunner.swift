@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
@@ -515,7 +516,7 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
         guard !isRunning else { return }
         isRunning = true
         status = "\(issue) 브랜치 생성 중..."
-        let result = await Self.executeDetached(["dev", "create-branch", "--repo", repo, "--issue-key", issue, "--summary", summary, "--base-branch", "dev"])
+        let result = await Self.executeDetached(["dev", "create-branch", "--repo", repo, "--issue-key", issue, "--summary", summary])
         lastOutput = result.output
         status = result.succeeded ? "\(issue) 브랜치 준비 완료" : "\(issue) 브랜치 생성 실패"
         isRunning = false
@@ -584,10 +585,11 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
         var arguments = ["repo", "report", "--snapshot", "morning", "--dry-run", "--report-agent-file", Self.reportAgentURL().path]
         var notesURL: URL?
         if !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            notesURL = Self.supportDirectory().appendingPathComponent("report-notes-\(UUID().uuidString).txt")
+            let temporaryNotesURL = Self.supportDirectory().appendingPathComponent("report-notes-\(UUID().uuidString).txt")
             do {
-                try notes.write(to: notesURL!, atomically: true, encoding: .utf8)
-                arguments.append(contentsOf: ["--notes-file", notesURL!.path])
+                try notes.write(to: temporaryNotesURL, atomically: true, encoding: .utf8)
+                notesURL = temporaryNotesURL
+                arguments.append(contentsOf: ["--notes-file", temporaryNotesURL.path])
             } catch {
                 let message = "수동 메모 임시 파일 저장 실패: \(error.localizedDescription)"
                 status = message
@@ -652,7 +654,12 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
                     branch: String(parts[2]),
                     ahead: Int(String(parts[3])),
                     behind: Int(String(parts[4])),
-                    dirtyCount: Int(String(parts[5])) ?? 0
+                    dirtyCount: Int(String(parts[5])) ?? 0,
+                    baseBranch: parts.count > 6 ? String(parts[6]) : "",
+                    baseRef: parts.count > 7 ? String(parts[7]) : "",
+                    baseBehind: parts.count > 8 ? Int(String(parts[8])) : nil,
+                    baseAhead: parts.count > 9 ? Int(String(parts[9])) : nil,
+                    isWorkingBranch: parts.count > 10 ? String(parts[10]) == "1" : false
                 )
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -902,7 +909,7 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
-        panel.allowedFileTypes = allowedExtensions
+        panel.allowedContentTypes = allowedExtensions.compactMap { UTType(filenameExtension: $0) }
         if panel.runModal() == .OK, let url = panel.url {
             onSelect(url)
         }
