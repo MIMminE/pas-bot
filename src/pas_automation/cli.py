@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
+import json
 from pathlib import Path
+import subprocess
 import sys
+from zoneinfo import ZoneInfo
 
 from pas_automation.app_state import default_config_path, default_env_path, init_app_data
 from pas_automation.config import load_config
-from pas_automation.features.ai_assistant import git_summary, incident_draft, jira_issue_summary, monthly_review, pr_description
+from pas_automation.features.ai_assistant import daily_commit_report, git_summary, incident_draft, jira_issue_summary, monthly_review, pr_description
 from pas_automation.features.assignees import list_assignees
 from pas_automation.features.automation import tick
-from pas_automation.features.daily_activity import summarize_daily_activity
+from pas_automation.features.daily_activity import collect_daily_activity, draft_daily_work_report, summarize_daily_activity
 from pas_automation.features.dev_assistant import audit_jira_keys, branch_name, calendar_summary, commit_message, create_branch, dashboard, evening_check, morning_briefing, pr_draft
 from pas_automation.features.dev_insights import (
     ci_failure_alerts,
@@ -29,6 +33,7 @@ from pas_automation.features.issue_repositories import (
     unlink_issue_repository,
 )
 from pas_automation.features.jira_daily import assign_issue, format_today_items
+from pas_automation.features.jira_issue_watch import check_new_issues
 from pas_automation.features.repo_report import report, snapshot
 from pas_automation.features.repo_morning_sync import morning_sync
 from pas_automation.features.repo_status import summarize_repositories
@@ -36,7 +41,7 @@ from pas_automation.features.remote_repos import clone_remote_repository, format
 from pas_automation.features.scheduler import install_schedules, schedule_status, uninstall_schedules
 from pas_automation.features.settings_import import import_settings
 from pas_automation.features.slack_test import send_test_message
-from pas_automation.integrations.git_repos import ahead_behind, commits_between, configured_repositories, configured_repository_projects, fetch, pull_ff_only, pull_rebase, push, require_clean_worktree, snapshot_repo, status_porcelain
+from pas_automation.integrations.git_repos import ahead_behind, auto_rebase_to_base, branch_options, checkout_branch, commits_between, configured_repositories, configured_repository_projects, fetch, git, owner_repo, pull_ff_only, pull_rebase, push, ref_last_commit_summary, require_clean_worktree, snapshot_repo, status_porcelain
 from pas_automation.integrations.slack import SlackClient, list_channels, section_block
 from pas_automation.runtime_env import load_env_file
 
@@ -73,6 +78,11 @@ def build_parser() -> argparse.ArgumentParser:
     jira_repo_links.add_argument("--format", choices=["text", "tsv"], default="text", help="출력 형식")
     jira_deploy = jira_sub.add_parser("deploy-waiting", help="배포 대기 상태의 내 Jira 일감 조회")
     jira_deploy.add_argument("--send-slack", action="store_true", help="Slack alerts 채널로 전송")
+    jira_watch = jira_sub.add_parser("watch-new", help="새로 등록된 Jira 일감 주기 조회")
+    jira_watch.add_argument("--jql", default="", help="감시 대상 JQL. 비우면 기본 프로젝트 전체")
+    jira_watch.add_argument("--max-results", type=int, default=20, help="최대 조회 개수")
+    jira_watch.add_argument("--include-existing", action="store_true", help="첫 실행에서도 최근 이슈를 출력")
+    jira_watch.add_argument("--send-slack", action="store_true", help="새 이슈가 있으면 Slack alerts 채널로 전송")
 
     slack = subparsers.add_parser("slack", help="Slack 알림")
     slack_sub = slack.add_subparsers(dest="command", required=True)
@@ -121,10 +131,22 @@ def build_parser() -> argparse.ArgumentParser:
     repo_update.add_argument("--mode", choices=["fetch", "pull", "rebase", "push"], default="pull", help="실행할 Git 작업")
     repo_update.add_argument("--dry-run", action="store_true", help="실행할 명령만 확인")
 
+    repo_branches = repo_sub.add_parser("branches", help="repository의 브랜치 목록 조회")
+    repo_branches.add_argument("--repo", required=True, help="조회할 repository 경로")
+    repo_branches.add_argument("--format", choices=["text", "tsv"], default="text", help="출력 형식")
+
+    repo_checkout = repo_sub.add_parser("checkout", help="관리 repository 브랜치 체크아웃")
+    repo_checkout.add_argument("--repo", required=True, help="작업할 repository 경로")
+    repo_checkout.add_argument("--branch", required=True, help="체크아웃할 브랜치 이름")
+
     repo_commits = repo_sub.add_parser("commits", help="repository의 오늘 내 커밋 조회")
     repo_commits.add_argument("--repo", required=True, help="조회할 repository 경로")
 
     repo_sub.add_parser("activity", help="오늘 브랜치/커밋/머지/PR 활동 요약")
+
+    repo_daily_draft = repo_sub.add_parser("daily-draft", help="오늘 한 일 보고서 초안 생성")
+    repo_daily_draft.add_argument("--notes", default="", help="초안에 포함할 수동 메모")
+    repo_daily_draft.add_argument("--notes-file", help="초안에 포함할 수동 메모 파일")
 
     repo_send_text = repo_sub.add_parser("send-report-text", help="수정한 보고서 텍스트를 Slack으로 전송")
     repo_send_text.add_argument("--text-file", required=True, help="전송할 보고서 텍스트 파일")
@@ -193,6 +215,11 @@ def build_parser() -> argparse.ArgumentParser:
     ai_git = ai_sub.add_parser("git-summary", help="최근 Git 커밋 기반 작업 요약")
     ai_git.add_argument("--tone", choices=["brief", "detailed", "manager"], default="brief", help="보고 톤")
     ai_git.add_argument("--days", type=int, default=1, help="조회할 최근 일수")
+    ai_daily = ai_sub.add_parser("daily-report", help="오늘 커밋 기반 AI 작업 보고서 작성")
+    ai_daily.add_argument("--notes", default="", help="AI 보고서에 함께 반영할 수동 메모")
+    ai_daily.add_argument("--notes-file", help="AI 보고서에 함께 반영할 수동 메모 파일")
+    ai_daily.add_argument("--tone", choices=["brief", "detailed", "manager"], default="manager", help="보고 톤")
+    ai_daily.add_argument("--report-agent-file", help="보고서 작성 규칙 Markdown 파일")
     ai_pr = ai_sub.add_parser("pr-draft", help="AI 기반 PR 제목/본문 초안")
     ai_pr.add_argument("--repo", help="대상 repository 경로")
     ai_pr.add_argument("--issue-key", help="연결할 Jira 이슈 키")
@@ -273,6 +300,18 @@ def main(argv: list[str] | None = None) -> int:
         print(deployment_waiting_issues(config, send_slack=args.send_slack))
         return 0
 
+    if args.area == "jira" and args.command == "watch-new":
+        print(
+            check_new_issues(
+                config,
+                jql=args.jql,
+                max_results=args.max_results,
+                include_existing=args.include_existing,
+                send_slack=args.send_slack,
+            )
+        )
+        return 0
+
     if args.area == "slack" and args.command == "test":
         print(send_test_message(config, dry_run=args.dry_run, destination=args.destination))
         return 0
@@ -314,10 +353,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.format == "tsv":
             rows = []
             for repo in repos:
+                rebase_result = auto_rebase_to_base(repo.path, base_branch=repo.base_branch)
+                rebase_alert = "" if rebase_result.succeeded or _is_dirty_rebase_skip(rebase_result.message) else rebase_result.message
+                auto_sync_message = rebase_result.message if rebase_result.succeeded and rebase_result.attempted else ""
                 snapshot_item = snapshot_repo(repo.path, base_branch=repo.base_branch)
                 dirty = len(status_porcelain(repo.path))
                 ahead, behind = ahead_behind(repo.path)
                 is_working = snapshot_item.branch != snapshot_item.base_branch and snapshot_item.branch != "detached"
+                today_commit_count, today_commit_preview = _today_commit_status(config, repo.path)
+                base_commit_summary = ref_last_commit_summary(repo.path, snapshot_item.base_ref)
+                pull_request_summary, release_summary = _github_repo_overview(repo.path)
                 rows.append(
                     "\t".join(
                         [
@@ -332,6 +377,13 @@ def main(argv: list[str] | None = None) -> int:
                             "" if snapshot_item.base_behind is None else str(snapshot_item.base_behind),
                             "" if snapshot_item.base_ahead is None else str(snapshot_item.base_ahead),
                             "1" if is_working else "0",
+                            rebase_alert.replace("\t", " ").replace("\n", " "),
+                            str(today_commit_count),
+                            today_commit_preview.replace("\t", " ").replace("\n", " ¶ "),
+                            base_commit_summary.replace("\t", " ").replace("\n", " "),
+                            auto_sync_message.replace("\t", " ").replace("\n", " "),
+                            pull_request_summary.replace("\t", " ").replace("\n", " "),
+                            release_summary.replace("\t", " ").replace("\n", " "),
                         ]
                     )
                 )
@@ -339,6 +391,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print("Git repository 목록")
             for repo in repos:
+                rebase_result = auto_rebase_to_base(repo.path, base_branch=repo.base_branch)
                 snapshot_item = snapshot_repo(repo.path, base_branch=repo.base_branch)
                 ahead, behind = ahead_behind(repo.path)
                 sync = "upstream 없음" if ahead is None or behind is None else f"ahead {ahead}, behind {behind}"
@@ -348,7 +401,9 @@ def main(argv: list[str] | None = None) -> int:
                     else f"기준 {snapshot_item.base_ref}: behind {snapshot_item.base_behind}, ahead {snapshot_item.base_ahead}"
                 )
                 working = "작업중" if snapshot_item.branch != snapshot_item.base_branch and snapshot_item.branch != "detached" else "기준 브랜치"
-                print(f"- {repo.path.name} [{snapshot_item.branch} <- {snapshot_item.base_branch}] {working}, {sync}, {base_sync} | {repo.path}")
+                rebase_alert = "" if rebase_result.succeeded or _is_dirty_rebase_skip(rebase_result.message) else f", 자동 rebase 알림: {rebase_result.message}"
+                auto_sync = f", 자동 처리: {rebase_result.message}" if rebase_result.succeeded and rebase_result.attempted else ""
+                print(f"- {repo.path.name} [{snapshot_item.branch} <- {snapshot_item.base_branch}] {working}, {sync}, {base_sync}{auto_sync}{rebase_alert} | {repo.path}")
         return 0
 
     if args.area == "repo" and args.command == "remote-list":
@@ -386,6 +441,29 @@ def main(argv: list[str] | None = None) -> int:
         print(output or f"{repo_path.name}: {command} 완료")
         return 0
 
+    if args.area == "repo" and args.command == "branches":
+        repo_path = _managed_repo_path(config, args.repo)
+        options = branch_options(
+            repo_path,
+            base_branch=_configured_base_branch(config, repo_path),
+            author_identities=_git_author_identities(config, repo_path),
+        )
+        if args.format == "tsv":
+            print("\n".join("\t".join([item.name, "1" if item.current else "0", "1" if item.remote else "0"]) for item in options))
+        else:
+            print(f"{repo_path.name} 브랜치")
+            for item in options:
+                marker = "*" if item.current else "-"
+                origin = "remote" if item.remote else "local"
+                print(f"{marker} {item.name} ({origin})")
+        return 0
+
+    if args.area == "repo" and args.command == "checkout":
+        repo_path = _managed_repo_path(config, args.repo)
+        output = checkout_branch(repo_path, args.branch)
+        print(output or f"{repo_path.name}: {args.branch} 체크아웃 완료")
+        return 0
+
     if args.area == "repo" and args.command == "commits":
         repo_path = _managed_repo_path(config, args.repo)
         today = __import__("datetime").date.today().isoformat()
@@ -400,6 +478,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.area == "repo" and args.command == "activity":
         print(summarize_daily_activity(config))
+        return 0
+
+    if args.area == "repo" and args.command == "daily-draft":
+        notes = Path(args.notes_file).expanduser().read_text(encoding="utf-8") if args.notes_file else args.notes
+        print(draft_daily_work_report(config, manual_notes=notes))
         return 0
 
     if args.area == "repo" and args.command == "send-report-text":
@@ -493,6 +576,11 @@ def main(argv: list[str] | None = None) -> int:
         print(git_summary(config, tone=args.tone, days=args.days))
         return 0
 
+    if args.area == "ai" and args.command == "daily-report":
+        notes = Path(args.notes_file).expanduser().read_text(encoding="utf-8") if args.notes_file else args.notes
+        print(daily_commit_report(config, notes=notes, tone=args.tone, report_rules_file=args.report_agent_file))
+        return 0
+
     if args.area == "ai" and args.command == "pr-draft":
         print(pr_description(config, repo_path=args.repo, issue_key=args.issue_key, tone=args.tone))
         return 0
@@ -546,6 +634,157 @@ def _managed_repo_path(config, raw_path: str) -> Path:
     if repo_path not in managed:
         raise RuntimeError(f"관리 대상 repository가 아닙니다: {repo_path}")
     return repo_path
+
+
+def _configured_base_branch(config, repo_path: Path) -> str:
+    for item in config.repo_projects:
+        if item.path.expanduser().resolve() == repo_path:
+            return item.base_branch
+    return ""
+
+
+def _git_author_identities(config, repo_path: Path) -> set[str]:
+    identities = {config.general.git_author}
+    for key in ("user.name", "user.email"):
+        try:
+            value = git(repo_path, "config", "--get", key)
+        except RuntimeError:
+            value = ""
+        if value:
+            identities.add(value)
+    return {item.strip().strip("<>").lower() for item in identities if item.strip()}
+
+
+def _today_commit_status(config, repo_path: Path) -> tuple[int, str]:
+    timezone = ZoneInfo(config.general.timezone)
+    now = datetime.now(timezone)
+    today = now.date().isoformat()
+    activity = collect_daily_activity(repo_path, today=today, author=config.general.git_author)
+    items = [("커밋", row) for row in activity.commits]
+    items.extend(("머지", row) for row in activity.merges)
+    items.sort(key=lambda item: _commit_datetime(item[1]) or datetime.min, reverse=True)
+    rows = [_compact_commit_line(row, now=now, kind=kind) for kind, row in items[:20]]
+    rows = [row for row in rows if row]
+    total = len(activity.commits) + len(activity.merges)
+    if not rows:
+        return 0, ""
+    return total, "\n".join(rows[:20])
+
+
+def _commit_datetime(row: str) -> datetime | None:
+    parts = row.split(" | ", 3)
+    if len(parts) < 2:
+        return None
+    try:
+        return datetime.fromisoformat(parts[1].strip())
+    except ValueError:
+        return None
+
+
+def _compact_commit_line(row: str, *, now: datetime | None = None, kind: str = "") -> str:
+    parts = row.split(" | ", 3)
+    if len(parts) == 3:
+        relative = _relative_commit_time(parts[1], now=now)
+        prefix_parts = [item for item in [kind, relative, parts[0]] if item]
+        prefix = " ".join(prefix_parts)
+        return f"{prefix} {parts[2]}"
+    if len(parts) >= 4:
+        relative = _relative_commit_time(parts[1], now=now)
+        prefix_parts = [item for item in [kind, relative, parts[0]] if item]
+        prefix = " ".join(prefix_parts)
+        return f"{prefix} {parts[3]}"
+    return row
+
+
+def _relative_commit_time(value: str, *, now: datetime | None = None) -> str:
+    try:
+        committed_at = datetime.fromisoformat(value.strip())
+    except ValueError:
+        return ""
+    current = now or datetime.now(committed_at.tzinfo)
+    if committed_at.tzinfo is None and current.tzinfo is not None:
+        committed_at = committed_at.replace(tzinfo=current.tzinfo)
+    seconds = max(0, int((current - committed_at).total_seconds()))
+    if seconds < 60:
+        return "방금"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes}분 전"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours}시간 전"
+    return f"{hours // 24}일 전"
+
+
+def _github_repo_overview(repo_path: Path) -> tuple[str, str]:
+    repo_name = owner_repo(repo_path)
+    if not repo_name:
+        return "", ""
+    pull_requests = _gh_json(
+        [
+            "gh",
+            "pr",
+            "list",
+            "--repo",
+            repo_name,
+            "--state",
+            "open",
+            "--json",
+            "number,title,headRefName,baseRefName,reviewDecision,updatedAt",
+            "--limit",
+            "20",
+        ]
+    )
+    release = _gh_json(
+        [
+            "gh",
+            "release",
+            "view",
+            "--repo",
+            repo_name,
+            "--json",
+            "tagName,name,publishedAt,url",
+        ]
+    )
+    return _format_pull_request_summary(pull_requests), _format_release_summary(release)
+
+
+def _gh_json(args: list[str]) -> object:
+    try:
+        result = subprocess.run(args, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=8)
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+    try:
+        return json.loads(result.stdout or "null")
+    except json.JSONDecodeError:
+        return None
+
+
+def _format_pull_request_summary(value: object) -> str:
+    if not isinstance(value, list):
+        return "PR 확인 불가"
+    if not value:
+        return "열린 PR 없음"
+    first = value[0] if isinstance(value[0], dict) else {}
+    decision = first.get("reviewDecision") or "리뷰 상태 없음"
+    title = str(first.get("title") or "")
+    return f"열린 PR {len(value)}개 · #{first.get('number')} {title} · {decision}"
+
+
+def _format_release_summary(value: object) -> str:
+    if not isinstance(value, dict):
+        return "릴리즈 확인 불가"
+    tag = str(value.get("tagName") or "").strip()
+    if not tag:
+        return "릴리즈 없음"
+    published_at = str(value.get("publishedAt") or "")[:10]
+    name = str(value.get("name") or "").strip()
+    label = tag if not name or name == tag else f"{tag} · {name}"
+    return f"최신 릴리즈 {label}" + (f" · {published_at}" if published_at else "")
+
+
+def _is_dirty_rebase_skip(message: str) -> bool:
+    return message.startswith("변경 파일 ") and "자동 rebase 건너뜀" in message
 
 
 if __name__ == "__main__":

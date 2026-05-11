@@ -23,7 +23,19 @@ class JiraClient:
             payload={
                 "jql": jql,
                 "maxResults": max_results,
-                "fields": ["summary", "status", "priority", "assignee", "duedate", "description", "subtasks"],
+                "fields": [
+                    "summary",
+                    "status",
+                    "priority",
+                    "assignee",
+                    "duedate",
+                    "description",
+                    "subtasks",
+                    "created",
+                    "reporter",
+                    "issuetype",
+                    "project",
+                ],
             },
         )
         return payload.get("issues", [])

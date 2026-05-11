@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pas_automation.config import AppConfig
-from pas_automation.integrations.git_repos import ahead_behind, configured_repository_projects, has_issue_key, is_protected_workflow_branch, snapshot_repo, status_porcelain
+from pas_automation.integrations.git_repos import ahead_behind, auto_rebase_to_base, configured_repository_projects, has_issue_key, is_protected_workflow_branch, snapshot_repo, status_porcelain
 from pas_automation.integrations.slack import SlackClient, context_block, divider_block, fields_block, header_block, section_block
 
 
@@ -18,6 +18,7 @@ class RepoStatus:
     dirty_count: int
     ahead: int | None
     behind: int | None
+    base_rebase_alert: str = ""
 
     @property
     def is_working_branch(self) -> bool:
@@ -31,7 +32,7 @@ class RepoStatus:
 def summarize_repositories(config: AppConfig, *, send_slack: bool, dry_run: bool) -> str:
     if not config.features.git_status:
         return "Git 상태 점검 기능이 꺼져 있습니다."
-    statuses = collect_repo_status(config)
+    statuses = collect_repo_status(config, auto_rebase=not dry_run)
     message = format_repo_status(statuses)
     if dry_run:
         return "[dry-run]\n" + message
@@ -40,9 +41,14 @@ def summarize_repositories(config: AppConfig, *, send_slack: bool, dry_run: bool
     return message
 
 
-def collect_repo_status(config: AppConfig) -> list[RepoStatus]:
+def collect_repo_status(config: AppConfig, *, auto_rebase: bool = True) -> list[RepoStatus]:
     statuses: list[RepoStatus] = []
     for project in configured_repository_projects(config):
+        base_rebase_alert = ""
+        if auto_rebase:
+            result = auto_rebase_to_base(project.path, base_branch=project.base_branch)
+            if not result.succeeded and not _is_dirty_rebase_skip(result.message):
+                base_rebase_alert = result.message
         snapshot = snapshot_repo(project.path, base_branch=project.base_branch)
         dirty = status_porcelain(project.path)
         ahead, behind = ahead_behind(project.path)
@@ -56,6 +62,7 @@ def collect_repo_status(config: AppConfig) -> list[RepoStatus]:
                 dirty_count=len(dirty),
                 ahead=ahead,
                 behind=behind,
+                base_rebase_alert=base_rebase_alert,
             )
         )
     return sorted(statuses, key=lambda item: str(item.path).lower())
@@ -70,10 +77,11 @@ def format_repo_status(statuses: list[RepoStatus]) -> str:
     behind_count = sum(1 for item in statuses if item.behind)
     working_count = sum(1 for item in statuses if item.is_working_branch)
     base_rebase_count = sum(1 for item in statuses if item.needs_base_rebase)
+    base_rebase_alert_count = sum(1 for item in statuses if item.base_rebase_alert)
     branch_policy_count = sum(1 for item in statuses if _branch_policy_attention(item))
     lines = [
         "Git repository 상태",
-        f"전체 {len(statuses)}개 | 작업중 {working_count}개 | 변경 있음 {dirty_count}개 | push 필요 {ahead_count}개 | upstream rebase/pull {behind_count}개 | 기준 rebase {base_rebase_count}개 | 브랜치 정책 확인 {branch_policy_count}개",
+        f"전체 {len(statuses)}개 | 작업중 {working_count}개 | 변경 있음 {dirty_count}개 | push 필요 {ahead_count}개 | upstream rebase/pull {behind_count}개 | 기준 rebase {base_rebase_count}개 | 자동 rebase 알림 {base_rebase_alert_count}개 | 브랜치 정책 확인 {branch_policy_count}개",
         "",
     ]
     for item in statuses:
@@ -93,11 +101,12 @@ def repo_status_blocks(statuses: list[RepoStatus]) -> list[dict]:
     behind_count = sum(1 for item in statuses if item.behind)
     working_count = sum(1 for item in statuses if item.is_working_branch)
     base_rebase_count = sum(1 for item in statuses if item.needs_base_rebase)
+    base_rebase_alert_count = sum(1 for item in statuses if item.base_rebase_alert)
     branch_policy_count = sum(1 for item in statuses if _branch_policy_attention(item))
     attention = [
         item
         for item in statuses
-        if item.dirty_count or item.ahead or item.behind or item.is_working_branch or item.needs_base_rebase or _branch_policy_attention(item)
+        if item.dirty_count or item.ahead or item.behind or item.is_working_branch or item.needs_base_rebase or item.base_rebase_alert or _branch_policy_attention(item)
     ]
     clean_count = len(statuses) - len(attention)
 
@@ -111,6 +120,7 @@ def repo_status_blocks(statuses: list[RepoStatus]) -> list[dict]:
                 f"*push 필요*\n{ahead_count}개",
                 f"*upstream 확인*\n{behind_count}개",
                 f"*기준 rebase*\n{base_rebase_count}개",
+                f"*자동 rebase 알림*\n{base_rebase_alert_count}개",
                 f"*브랜치 정책 확인*\n{branch_policy_count}개",
             ]
         ),
@@ -149,6 +159,8 @@ def _repo_status_card(item: RepoStatus) -> dict:
         fields.append(f"*upstream 업데이트*\nbehind {item.behind}")
     if item.needs_base_rebase:
         fields.append(f"*기준 rebase 필요*\n{item.base_ref} 기준 behind {item.base_behind}")
+    if item.base_rebase_alert:
+        fields.append(f"*자동 rebase 알림*\n{item.base_rebase_alert}")
     if _branch_policy_attention(item):
         fields.append(f"*브랜치 정책*\n{_branch_policy_label(item)}")
 
@@ -171,6 +183,8 @@ def _status_label(item: RepoStatus) -> str:
         labels.append("작업중")
     if item.needs_base_rebase:
         labels.append(f"기준 rebase -{item.base_behind}")
+    if item.base_rebase_alert:
+        labels.append("자동 rebase 확인 필요")
     if item.ahead is None or item.behind is None:
         labels.append("upstream 없음")
     if _branch_policy_attention(item):
@@ -198,3 +212,7 @@ def _summary_context(clean_count: int, attention_count: int) -> str:
     if attention_count:
         return f"확인 필요 {attention_count}개 | 정상 {clean_count}개"
     return f"정상 {clean_count}개 | 바로 작업 가능한 상태입니다."
+
+
+def _is_dirty_rebase_skip(message: str) -> bool:
+    return message.startswith("변경 파일 ") and "자동 rebase 건너뜀" in message

@@ -35,6 +35,13 @@ stale_jql = "assignee = currentUser() AND statusCategory != Done AND updated <= 
 # 높은 우선순위 일감 조회 JQL입니다.
 high_priority_jql = "assignee = currentUser() AND statusCategory != Done AND priority in (Highest, High)"
 
+[jira.issue_watch]
+# 새로 등록된 Jira 일감 감시 대상 JQL입니다. 비우면 기본 프로젝트 전체를 감시합니다.
+# 예: "project = LMS AND issuetype in (Story, Bug)"
+jql = ""
+# 앱에서 주기적으로 확인할 때 참고하는 기본 간격(초)입니다. 현재 macOS 앱 기본값은 300초입니다.
+interval_seconds = 300
+
 [slack]
 # Slack Bot User OAuth Token입니다. chat.postMessage 전송과 채널 목록 조회에 사용합니다.
 bot_token = ""

@@ -5,10 +5,12 @@ import calendar
 import json
 from pathlib import Path
 
+from pas_automation.app_state import default_report_agent_path
 from pas_automation.config import AppConfig
+from pas_automation.features.daily_activity import draft_daily_work_report
 from pas_automation.integrations.git_repos import configured_repositories, current_branch, git, recent_commits
 from pas_automation.integrations.jira import JiraClient
-from pas_automation.integrations.openai_report import generate_text, tone_instruction
+from pas_automation.integrations.openai_report import build_report, generate_text, tone_instruction
 
 
 def git_summary(config: AppConfig, *, tone: str = "brief", days: int = 1) -> str:
@@ -23,6 +25,21 @@ def git_summary(config: AppConfig, *, tone: str = "brief", days: int = 1) -> str
             f"{commits}"
         ),
         fallback=_fallback("Git 커밋 기반 오늘 한 일 요약", commits),
+    )
+
+
+def daily_commit_report(config: AppConfig, *, notes: str = "", tone: str = "manager", report_rules_file: str | None = None) -> str:
+    _ensure_ai(config)
+    if not config.openai.api_key:
+        raise RuntimeError("OpenAI API Key가 설정되어 있지 않습니다. 설정 화면의 OpenAI API Key를 입력한 뒤 다시 실행해 주세요.")
+    evidence = draft_daily_work_report(config, manual_notes=notes)
+    rules = _read_report_rules(report_rules_file)
+    tone_rule = f"\n\n[AI 작성 톤]\n{tone_instruction(tone)}"
+    return build_report(
+        config.openai,
+        evidence,
+        manual_notes=notes,
+        report_rules=(rules + tone_rule).strip(),
     )
 
 
@@ -106,6 +123,14 @@ def _system(tone: str) -> str:
 def _ensure_ai(config: AppConfig) -> None:
     if not config.features.enabled("ai"):
         raise RuntimeError("AI 확장 기능이 꺼져 있습니다.")
+
+
+def _read_report_rules(path: str | None) -> str:
+    target = Path(path).expanduser() if path else default_report_agent_path()
+    try:
+        return target.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return ""
 
 
 def _recent_commit_context(config: AppConfig, *, days: int) -> str:

@@ -13,6 +13,8 @@ from pas_automation.integrations.git_repos import configured_repositories, git
 from pas_automation.integrations.jira import JiraClient
 from pas_automation.integrations.slack import (
     SlackClient,
+    actions_block,
+    button_element,
     context_block,
     divider_block,
     fields_block,
@@ -72,6 +74,19 @@ def format_today_items(
     return message
 
 
+def today_items_slack_blocks(config: AppConfig, *, max_results: int = 10) -> list[dict[str, Any]]:
+    client = JiraClient(config.jira)
+    raw_issues = client.search(config.jira.todo_jql, max_results=max_results)
+    issues = _without_nested_subtasks(raw_issues)
+    yesterday_keys = _issue_keys(client.search(config.jira.yesterday_assigned_jql, max_results=100))
+    stale_keys = _issue_keys(client.search(config.jira.stale_jql, max_results=100))
+    high_keys = _issue_keys(client.search(config.jira.high_priority_jql, max_results=100))
+    branch_matches = _local_branch_matches(config, issues)
+    repo_links = issue_repository_links()
+    today = datetime.now(ZoneInfo(config.general.timezone)).date().isoformat()
+    return _build_slack_blocks(config, today, issues, yesterday_keys, stale_keys, high_keys, branch_matches, repo_links)
+
+
 def assign_issue(config: AppConfig, issue_key: str, account_id_or_email: str, *, dry_run: bool) -> str:
     account_id_or_email = resolve_assignee(config, account_id_or_email)
     if dry_run:
@@ -125,16 +140,17 @@ def _build_slack_blocks(
 ) -> list[dict[str, Any]]:
     subtask_count = sum(len(_subtasks(issue)) for issue in issues)
     blocks = [
-        header_block(f"오늘의 Jira 일감 - {today}"),
+        header_block(f"오늘의 Jira 일감"),
         fields_block(
             [
-                f"*미처리*\n{len(issues)}개",
+                f"*미처리*\n*{len(issues)}개*",
                 f"*하위 일감*\n{subtask_count}개",
                 f"*어제 할당*\n{len(yesterday_keys)}개",
                 f"*5일 이상 미갱신*\n{len(stale_keys)}개",
                 f"*높은 우선순위*\n{len(high_keys)}개",
             ]
         ),
+        context_block(f"기준일 {today} · 우선순위/미갱신/브랜치 연결 상태를 함께 표시합니다."),
         divider_block(),
     ]
 
@@ -142,9 +158,8 @@ def _build_slack_blocks(
         blocks.append(section_block("확인할 미처리 일감이 없습니다."))
         return blocks
 
-    for issue in issues[:10]:
-        blocks.append(section_block(_format_issue_markdown(config, issue, yesterday_keys, stale_keys, high_keys, branch_matches, repo_links)))
-        blocks.append(section_block(_format_issue_meta_markdown(issue)))
+    for index, issue in enumerate(issues[:10], start=1):
+        blocks.append(section_block(_format_issue_card_markdown(config, issue, index, yesterday_keys, stale_keys, high_keys, branch_matches, repo_links)))
         summary_text = _format_issue_summary_markdown(issue)
         if summary_text:
             blocks.append(section_block(summary_text))
@@ -159,6 +174,7 @@ def _build_slack_blocks(
             blocks.append(context_block(repo_link_text))
         issue_actions = _format_issue_actions_markdown(issue, repo_links)
         if issue_actions:
+            blocks.append(actions_block(_issue_action_buttons(config, issue, repo_links)))
             blocks.append(context_block(issue_actions))
         blocks.append(divider_block())
 
@@ -166,6 +182,33 @@ def _build_slack_blocks(
         blocks.append(context_block(f"Slack 표시 한도 때문에 상위 10개만 표시했습니다. 전체 조회 결과: {len(issues)}개"))
 
     return blocks[:50]
+
+
+def _format_issue_card_markdown(
+    config: AppConfig,
+    issue: dict[str, Any],
+    index: int,
+    yesterday_keys: set[str],
+    stale_keys: set[str],
+    high_keys: set[str],
+    branch_matches: dict[str, list[LocalBranchMatch]],
+    repo_links: dict[str, IssueRepositoryLink],
+) -> str:
+    fields = issue["fields"]
+    priority = (fields.get("priority", {}) or {}).get("name", "-")
+    status = (fields.get("status", {}) or {}).get("name", "Unknown")
+    due = fields.get("duedate") or "-"
+    badges = _badges(issue["key"], yesterday_keys, stale_keys, high_keys)
+    badge_text = " ".join(f"`{badge}`" for badge in badges)
+    branch_count = len(branch_matches.get(issue["key"], []))
+    repo_text = repo_links[issue["key"]].repo_name if issue["key"] in repo_links else "미선택"
+    return "\n".join(
+        [
+            f"*{index}. <{_issue_url(config, issue['key'])}|{issue['key']}> · {fields.get('summary', '')}*",
+            f"{badge_text}".strip(),
+            f"`{status}` · `{priority}` · 마감 `{due}` · 하위 `{len(_subtasks(issue))}` · 브랜치 `{branch_count}` · repo `{repo_text}`",
+        ]
+    ).strip()
 
 
 def _format_issue(
@@ -244,10 +287,10 @@ def _format_issue_meta_markdown(issue: dict[str, Any]) -> str:
 
 
 def _format_issue_summary_markdown(issue: dict[str, Any]) -> str:
-    description = _truncate(_description_to_text(issue["fields"].get("description")), 360)
+    description = _truncate(_description_to_text(issue["fields"].get("description")), 180)
     if not description or description == "-":
         return ""
-    return f">*내용*\n>{description}"
+    return f"> {description}"
 
 
 def _format_subtasks_markdown(config: AppConfig, issue: dict[str, Any]) -> str:
@@ -299,6 +342,13 @@ def _format_issue_actions_markdown(issue: dict[str, Any], repo_links: dict[str, 
             )
         )
     return "작업: " + " · ".join(links)
+
+
+def _issue_action_buttons(config: AppConfig, issue: dict[str, Any], repo_links: dict[str, IssueRepositoryLink]) -> list[dict[str, Any]]:
+    issue_key = issue["key"]
+    return [
+        button_element("Jira 열기", _issue_url(config, issue_key), action_id=f"open_{issue_key}"),
+    ]
 
 
 def _slack_link(url: str, label: str) -> str:

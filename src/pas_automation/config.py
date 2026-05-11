@@ -27,6 +27,12 @@ class JiraConfig:
 
 
 @dataclass(frozen=True)
+class JiraIssueWatchConfig:
+    jql: str
+    interval_seconds: int
+
+
+@dataclass(frozen=True)
 class SlackConfig:
     mode: str
     bot_token: str
@@ -125,6 +131,7 @@ class AppConfig:
     root: Path
     general: GeneralConfig
     jira: JiraConfig
+    jira_issue_watch: JiraIssueWatchConfig
     slack: SlackConfig
     openai: OpenAIConfig
     calendar: CalendarConfig
@@ -141,6 +148,7 @@ def load_config(path: str | Path) -> AppConfig:
 
     general_raw = raw.get("general", {})
     jira_raw = raw.get("jira", {})
+    jira_issue_watch_raw = jira_raw.get("issue_watch", {})
     slack_raw = raw.get("slack", {})
     slack_channels_raw = slack_raw.get("channels", {})
     openai_raw = raw.get("openai", {})
@@ -191,6 +199,10 @@ def load_config(path: str | Path) -> AppConfig:
                 "high_priority_jql",
                 "assignee = currentUser() AND statusCategory != Done AND priority in (Highest, High)",
             ),
+        ),
+        jira_issue_watch=JiraIssueWatchConfig(
+            jql=str(jira_issue_watch_raw.get("jql", "")).strip(),
+            interval_seconds=int(jira_issue_watch_raw.get("interval_seconds", 300) or 300),
         ),
         slack=SlackConfig(
             mode="oauth",

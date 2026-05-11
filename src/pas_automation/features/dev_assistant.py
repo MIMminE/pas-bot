@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 from pas_automation.config import AppConfig
-from pas_automation.features.jira_daily import format_today_items
+from pas_automation.features.jira_daily import format_today_items, today_items_slack_blocks
 from pas_automation.features.repo_report import report
 from pas_automation.features.repo_status import collect_repo_status, format_repo_status
 from pas_automation.integrations.calendar import format_calendar, upcoming_events
@@ -19,7 +19,7 @@ from pas_automation.integrations.git_repos import (
     require_clean_worktree,
     staged_files,
 )
-from pas_automation.integrations.slack import SlackClient, context_block, divider_block, header_block, section_block
+from pas_automation.integrations.slack import SlackClient, context_block, divider_block, fields_block, header_block, section_block
 
 
 ISSUE_KEY_PATTERN = re.compile(r"[A-Z][A-Z0-9]+-\d+")
@@ -36,14 +36,14 @@ def morning_briefing(config: AppConfig, *, send_slack: bool, dry_run: bool = Fal
         format_today_items(config, max_results=10, dry_run=dry_run, send_slack=False),
         "",
         "[로컬 Git 상태]",
-        format_repo_status(collect_repo_status(config)),
+        format_repo_status(collect_repo_status(config, auto_rebase=not dry_run)),
         "",
         "[캘린더]",
         calendar_summary(config),
     ]
     message = "\n".join(sections)
     if send_slack and not dry_run:
-        SlackClient(config.slack, destination="morning_briefing").send(message, blocks=_routine_blocks("출근 브리핑", message))
+        SlackClient(config.slack, destination="morning_briefing").send(message, blocks=_morning_blocks(config, message, dry_run=dry_run))
     return message
 
 
@@ -53,7 +53,7 @@ def evening_check(config: AppConfig, *, send_slack: bool, dry_run: bool = False)
 
     from pas_automation.features.dev_insights import evening_checklist
 
-    statuses = collect_repo_status(config)
+    statuses = collect_repo_status(config, auto_rebase=not dry_run)
     sections = [
         "퇴근 체크",
         "",
@@ -264,6 +264,42 @@ def _routine_blocks(title: str, message: str) -> list[dict]:
         blocks.append(divider_block())
     blocks.append(context_block("PAS 개발자 루틴 보조"))
     return blocks[:50]
+
+
+def _morning_blocks(config: AppConfig, message: str, *, dry_run: bool) -> list[dict]:
+    jira_blocks = today_items_slack_blocks(config, max_results=8)
+    statuses = collect_repo_status(config)
+    dirty_count = sum(1 for item in statuses if item.dirty_count)
+    working_count = sum(1 for item in statuses if item.is_working_branch)
+    attention_count = sum(
+        1
+        for item in statuses
+        if item.dirty_count or item.ahead or item.behind or item.needs_base_rebase or item.base_rebase_alert
+    )
+    blocks = [
+        header_block("출근 브리핑"),
+        fields_block(
+            [
+                f"*관리 repo*\n{len(statuses)}개",
+                f"*작업중*\n{working_count}개",
+                f"*변경 파일*\n{dirty_count}개",
+                f"*확인 필요*\n{attention_count}개",
+            ]
+        ),
+        context_block("오늘 시작 전에 볼 항목만 카드 형태로 정리했습니다."),
+        divider_block(),
+    ]
+    blocks.extend(jira_blocks[:36])
+    blocks.append(section_block(f"*로컬 Git 상태*\n```{_clip_for_code(format_repo_status(statuses), 1800)}```"))
+    calendar = calendar_summary(config)
+    if calendar.strip():
+        blocks.append(section_block(f"*캘린더*\n{_clip_for_code(calendar, 900)}"))
+    blocks.append(context_block("PAS 개발자 루틴 보조"))
+    return blocks[:50]
+
+
+def _clip_for_code(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
 
 
 def _repositories(config: AppConfig) -> list[Path]:
