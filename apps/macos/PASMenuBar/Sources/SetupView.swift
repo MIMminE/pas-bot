@@ -1,5 +1,59 @@
 import SwiftUI
 
+private struct SettingsSidebarItem {
+    let id: String
+    let title: String
+    let systemImage: String
+}
+
+private struct SettingsSidebarButton: View {
+    let item: SettingsSidebarItem
+    let isSelected: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: item.systemImage)
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 18)
+                Text(item.title)
+                    .font(.callout)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+            .background(menuBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .shadow(
+                color: isHovered ? Color.black.opacity(0.18) : Color.black.opacity(0),
+                radius: isHovered ? 8 : 0,
+                x: 0,
+                y: isHovered ? 3 : 0
+            )
+            .scaleEffect(isHovered ? 1.015 : 1)
+            .animation(.easeOut(duration: 0.12), value: isHovered)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+    }
+
+    private var menuBackground: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.14)
+        }
+        if isHovered {
+            return Color(nsColor: .controlBackgroundColor).opacity(0.9)
+        }
+        return Color.clear
+    }
+}
+
 struct SetupView: View {
     @ObservedObject var runner: PASRunner
 
@@ -16,11 +70,12 @@ struct SetupView: View {
     @State private var isLoadingRemoteRepositories = false
     @State private var isCloningRemoteRepositories = false
     @State private var isCheckingGitHubAuth = false
-    @State private var isSlackExpanded = true
-    @State private var isJiraExpanded = true
+    @State private var isSlackExpanded = false
+    @State private var isJiraExpanded = false
     @State private var isDeveloperExpanded = true
     @State private var isAutomationExpanded = false
     @State private var isTestExpanded = false
+    @State private var selectedSettingsSection = "developer"
 
     init(runner: PASRunner) {
         self.runner = runner
@@ -33,39 +88,156 @@ struct SetupView: View {
         VStack(spacing: 0) {
             header
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    slackSection
-                    jiraSection
-                    developerSection
-                    automationSection
-                    testSection
+            Divider()
+
+            HStack(spacing: 0) {
+                settingsSidebar
+
+                Divider()
+
+                ScrollView {
+                    selectedSettingsContent
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
-                .padding(20)
             }
 
             footer
         }
-        .frame(minWidth: 720, minHeight: 660)
+        .frame(width: 640, height: 560)
+        .onChange(of: runner.activeProfileID) { _ in
+            settings = runner.loadSettings()
+            remoteCloneRoot = settings.cloneRoot
+            slackChannels = []
+            localRepositories = []
+            remoteRepositories = []
+            selectedRemoteRepositoryIDs = []
+            selectedSettingsSection = "developer"
+        }
     }
 
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("PAS 설정")
-                    .font(.title2)
+                Text("설정")
+                    .font(.title3)
                     .bold()
 
-                Text("Jira, Slack, 로컬 Git 작업 보고를 개인 개발 비서 흐름에 맞게 연결합니다.")
+                Text("\(runner.activeProfile.title) 프로필 설정을 관리합니다.")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             Spacer()
 
+            ProfileBadge(profile: runner.activeProfile)
             statusPill
         }
-        .padding(20)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var settingsSidebar: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(availableSettingsSections, id: \.id) { item in
+                SettingsSidebarButton(
+                    item: item,
+                    isSelected: selectedSettingsSection == item.id
+                ) {
+                    selectedSettingsSection = item.id
+                }
+            }
+
+            Spacer()
+        }
+        .padding(10)
+        .frame(width: 152)
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.78))
+    }
+
+    @ViewBuilder
+    private var selectedSettingsContent: some View {
+        switch selectedSettingsSection {
+        case "profiles":
+            profileSection
+        case "slack":
+            if runner.isPersonalProfile { developerSection } else { slackSection }
+        case "jira":
+            if runner.isPersonalProfile { developerSection } else { jiraSection }
+        case "automation":
+            if runner.isPersonalProfile { developerSection } else { automationSection }
+        case "test":
+            testSection
+        default:
+            developerSection
+        }
+    }
+
+    private var availableSettingsSections: [SettingsSidebarItem] {
+        var items: [SettingsSidebarItem] = [
+            SettingsSidebarItem(id: "profiles", title: "프로필", systemImage: "person.2")
+        ]
+        if !runner.isPersonalProfile {
+            items.append(SettingsSidebarItem(id: "slack", title: "Slack", systemImage: "number"))
+            items.append(SettingsSidebarItem(id: "jira", title: "Jira", systemImage: "checklist"))
+        }
+        items.append(SettingsSidebarItem(id: "developer", title: "개발", systemImage: "terminal"))
+        if !runner.isPersonalProfile {
+            items.append(SettingsSidebarItem(id: "automation", title: "자동 실행", systemImage: "clock.arrow.circlepath"))
+        }
+        items.append(SettingsSidebarItem(id: "test", title: "연결 확인", systemImage: "stethoscope"))
+        return items
+    }
+
+    private var profileSection: some View {
+        SettingsSection(
+            title: "프로필 활성 관리",
+            summary: "준비된 프로필만 워크스페이스 전환 메뉴에 표시합니다.",
+            systemImage: "person.2",
+            isExpanded: $isDeveloperExpanded
+        ) {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(PASProfile.all) { profile in
+                    HStack(alignment: .center, spacing: 10) {
+                        Image(systemName: profile.systemImage)
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: 24)
+                            .foregroundStyle(Color.accentColor)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(profile.title)
+                                .font(.subheadline)
+                                .bold()
+                            Text(profile.subtitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Toggle(
+                            "",
+                            isOn: Binding(
+                                get: { runner.isProfileEnabled(profile.id) },
+                                set: { runner.setProfileEnabled(profile.id, enabled: $0) }
+                            )
+                        )
+                        .labelsHidden()
+                        .disabled(profile.id == PASProfile.work.id)
+                        .help(profile.id == PASProfile.work.id ? "업무 프로필은 항상 활성 상태입니다." : "프로필 활성화")
+                    }
+                    .padding(10)
+                    .background(Color(nsColor: .textBackgroundColor).opacity(0.62))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+
+                Text("비활성 프로필은 좌측 프로필 전환 메뉴에 나타나지 않으며, 해당 프로필의 repository/Jira/GitHub 로드도 실행되지 않습니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 6)
+        }
     }
 
     private var statusPill: some View {
@@ -198,6 +370,7 @@ struct SetupView: View {
                 SettingsTextField(title: "퇴근 기준 시간", placeholder: "18:00", text: $settings.workEndTime)
                 SettingsSecureField(title: "OpenAI API Key", placeholder: "Git 보고서 AI 요약 사용 시 입력", text: $settings.openAIKey)
                 idePicker
+                workDashboardPicker
 
                 Text("GitHub CLI 로그인 상태로 접근 가능한 repository 후보를 조회하고, 선택한 repository를 내려받아 관리 대상으로 저장합니다.")
                     .font(.caption)
@@ -417,9 +590,24 @@ struct SetupView: View {
                 }
             }
         }
-        .task {
-            if ideApps.isEmpty {
-                ideApps = runner.detectedIDEApps()
+    }
+
+    private var workDashboardPicker: some View {
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+            GridRow {
+                Text("작업 내용 줄 수")
+                    .frame(width: 128, alignment: .leading)
+
+                HStack(spacing: 8) {
+                    Stepper("\(settings.workCommitPreviewRowsOrDefault)줄", value: $settings.workCommitPreviewRows, in: 1...8)
+                        .frame(width: 110, alignment: .leading)
+
+                    Text("워크스페이스 레포 카드의 오늘 작업 미리보기 줄 수입니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+                }
             }
         }
     }
@@ -537,24 +725,27 @@ struct SetupView: View {
 
     private var footer: some View {
         HStack {
-            Button("설정 폴더 열기") {
+            Button {
                 runner.openSupportDirectory()
+            } label: {
+                Label("폴더", systemImage: "folder")
             }
+            .help("설정 폴더 열기")
 
             Spacer()
 
-            Button("저장") {
-                runner.saveSettings(settings)
+            Button("닫기") {
+                runner.closeSetupWindow()
             }
-            .keyboardShortcut(.defaultAction)
 
-            Button("저장 후 닫기") {
+            Button("저장") {
                 runner.saveSettings(settings)
                 runner.closeSetupWindow()
             }
-            .disabled(!settings.isReadyForBasicTests)
+            .keyboardShortcut(.defaultAction)
         }
-        .padding(20)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 

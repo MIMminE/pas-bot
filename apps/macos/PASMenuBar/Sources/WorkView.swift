@@ -1,9 +1,14 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct WorkView: View {
     @ObservedObject var runner: PASRunner
 
     @AppStorage("pas.work.appearance") private var appearance = "system"
+    @AppStorage("pas.work.commandCenterExpanded") private var isCommandCenterExpanded = true
+    @AppStorage("pas.work.repositoryOrder") private var repositoryOrderRaw = ""
+    @AppStorage("pas.work.sidebarCollapsed") private var isSidebarCollapsed = false
+    @AppStorage("pas.work.selectedSection") private var selectedSection = "workspace"
 
     @State private var repositories: [LocalRepositoryOption] = []
     @State private var isLoading = false
@@ -12,22 +17,28 @@ struct WorkView: View {
     @State private var reportDraft = ""
     @State private var reportNotes = ""
     @State private var filter = "all"
-    @State private var selectedTab = "repositories"
     @State private var pendingAction: RepoAction?
     @State private var showDirtyWarning = false
     @State private var notice: WorkNotice?
+    @State private var branchOptionsByPath: [String: [BranchOption]] = [:]
+    @State private var draggingRepositoryPath: String?
+    @State private var workCommitPreviewRows = 4
 
     private var filteredRepositories: [LocalRepositoryOption] {
+        let ordered = orderedRepositories(repositories)
         switch filter {
         case "needsUpdate":
-            return repositories.filter { $0.needsUpdate }
-        case "dirty":
-            return repositories.filter { $0.dirtyCount > 0 }
-        case "push":
-            return repositories.filter { ($0.ahead ?? 0) > 0 }
+            return ordered.filter { $0.needsUpdate }
         default:
-            return repositories
+            return ordered
         }
+    }
+
+    private var repositoryOrder: [String] {
+        repositoryOrderRaw
+            .split(separator: "\n")
+            .map(String.init)
+            .filter { !$0.isEmpty }
     }
 
     private var preferredScheme: ColorScheme? {
@@ -54,16 +65,30 @@ struct WorkView: View {
             )
             .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                header
-
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        commandCenter
-                        dashboardTabs
-                        selectedDashboardContent
+            HStack(spacing: 0) {
+                WorkSidebarView(
+                    selectedSection: $selectedSection,
+                    isCollapsed: $isSidebarCollapsed,
+                    activeProfileID: runner.activeProfileID,
+                    profiles: runner.availableProfiles,
+                    repositoryCount: repositories.count,
+                    reportReady: !reportDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                    onProfileChange: { profileID in
+                        runner.switchProfile(to: profileID)
                     }
-                    .padding(20)
+                )
+
+                Divider()
+
+                VStack(spacing: 0) {
+                    compactToolbar
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            selectedSectionContent
+                        }
+                        .padding(20)
+                    }
                 }
             }
         }
@@ -72,6 +97,15 @@ struct WorkView: View {
         .task {
             await reload()
             await autoRefreshLoop()
+        }
+        .task {
+            await jiraIssueWatchLoop()
+        }
+        .onChange(of: runner.activeProfileID) { _ in
+            reportDraft = ""
+            reportNotes = ""
+            branchOptionsByPath = [:]
+            Task { await reload(notify: true) }
         }
         .sheet(item: $notice) { notice in
             WorkNoticeView(notice: notice)
@@ -83,56 +117,42 @@ struct WorkView: View {
         }
     }
 
-    private var header: some View {
-        HStack(alignment: .center, spacing: 16) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.accentColor.opacity(0.16))
-                Image(systemName: "bolt.horizontal.circle.fill")
-                    .font(.system(size: 28, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-            }
-            .frame(width: 52, height: 52)
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text("PAS 작업 대시보드")
-                    .font(.system(size: 25, weight: .bold))
-
-                Text("관리 저장소 정비, 보고서 작성, 보조 도구를 흐름별로 나눠 처리합니다.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-
+    private var compactToolbar: some View {
+        HStack(spacing: 8) {
             Spacer()
 
             Picker("화면", selection: $appearance) {
-                Label("시스템", systemImage: "circle.lefthalf.filled").tag("system")
-                Label("라이트", systemImage: "sun.max").tag("light")
-                Label("다크", systemImage: "moon").tag("dark")
+                Image(systemName: "circle.lefthalf.filled").tag("system")
+                Image(systemName: "sun.max").tag("light")
+                Image(systemName: "moon").tag("dark")
             }
+            .labelsHidden()
             .pickerStyle(.segmented)
-            .frame(width: 260)
+            .frame(width: 112)
+            .help("화면 모드")
 
-            StatusPill(text: runner.status, isRunning: runner.isRunning)
+            Button {
+                runner.openSetupWindow()
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 28, height: 24)
+            }
+            .buttonStyle(.borderless)
+            .help("설정 열기")
         }
-        .padding(.horizontal, 22)
-        .padding(.vertical, 18)
-        .background(.regularMaterial)
-    }
-
-    private var dashboardTabs: some View {
-        Picker("작업 영역", selection: $selectedTab) {
-            Label("저장소", systemImage: "folder.badge.gearshape").tag("repositories")
-            Label("보고서", systemImage: "doc.text").tag("report")
-        }
-        .pickerStyle(.segmented)
+        .padding(.horizontal, 18)
+        .padding(.top, 12)
+        .padding(.bottom, 4)
     }
 
     @ViewBuilder
-    private var selectedDashboardContent: some View {
-        switch selectedTab {
+    private var selectedSectionContent: some View {
+        switch selectedSection {
         case "report":
             reportSection
+        case "tools":
+            commandCenter
         default:
             VStack(alignment: .leading, spacing: 16) {
                 repositoryActions
@@ -142,14 +162,27 @@ struct WorkView: View {
     }
 
     private var commandCenter: some View {
-        DashboardPanel(title: "업무 실행 보드", systemImage: "rectangle.grid.2x2") {
-            HStack(alignment: .top, spacing: 12) {
-                briefingActions
-                    .frame(maxWidth: .infinity)
-                toolActions
-                    .frame(maxWidth: .infinity)
-                aiSection
-                    .frame(maxWidth: .infinity)
+        CollapsibleDashboardPanel(
+            title: "업무 실행 보드",
+            systemImage: "rectangle.grid.2x2",
+            isExpanded: $isCommandCenterExpanded
+        ) {
+            if runner.isPersonalProfile {
+                HStack(alignment: .top, spacing: 12) {
+                    personalToolActions
+                        .frame(maxWidth: .infinity)
+                    aiSection
+                        .frame(maxWidth: .infinity)
+                }
+            } else {
+                HStack(alignment: .top, spacing: 12) {
+                    briefingActions
+                        .frame(maxWidth: .infinity)
+                    toolActions
+                        .frame(maxWidth: .infinity)
+                    aiSection
+                        .frame(maxWidth: .infinity)
+                }
             }
         }
     }
@@ -209,6 +242,11 @@ struct WorkView: View {
                 }
                 .disabled(runner.isRunning)
 
+                DashboardButton(title: "새 Jira 일감 확인", systemImage: "bell.badge") {
+                    Task { await checkNewJiraIssues(showEmptyResult: true) }
+                }
+                .disabled(runner.isRunning)
+
             }
         }
     }
@@ -221,33 +259,72 @@ struct WorkView: View {
                 }
                 .disabled(isLoading || runner.isRunning)
 
-                DashboardButton(title: "상태 공유", systemImage: "paperplane") {
-                    Task {
-                        await runDashboardCommand(
-                            ["repo", "status", "--send-slack"],
-                            title: "저장소 상태 공유",
-                            running: "저장소 상태를 Slack으로 공유하는 중...",
-                            success: "저장소 상태를 Slack으로 공유했습니다",
-                            failure: "저장소 상태 공유 실패"
-                        )
+                if !runner.isPersonalProfile {
+                    DashboardButton(title: "상태 공유", systemImage: "paperplane") {
+                        Task {
+                            await runDashboardCommand(
+                                ["repo", "status", "--send-slack"],
+                                title: "저장소 상태 공유",
+                                running: "저장소 상태를 Slack으로 공유하는 중...",
+                                success: "저장소 상태를 Slack으로 공유했습니다",
+                                failure: "저장소 상태 공유 실패"
+                            )
+                        }
                     }
-                }
-                .disabled(runner.isRunning)
+                    .disabled(runner.isRunning)
 
-                DashboardButton(title: "출근 정비 실행", systemImage: "sparkles") {
-                    Task {
-                        await runDashboardCommand(
-                            ["repo", "morning-sync", "--send-slack"],
-                            title: "출근 정비 실행",
-                            running: "출근 저장소 정비를 실행하는 중...",
-                            success: "출근 저장소 정비 완료",
-                            failure: "출근 저장소 정비 실패"
-                        )
+                    DashboardButton(title: "출근 정비 실행", systemImage: "sparkles") {
+                        Task {
+                            await runDashboardCommand(
+                                ["repo", "morning-sync", "--send-slack"],
+                                title: "출근 정비 실행",
+                                running: "출근 저장소 정비를 실행하는 중...",
+                                success: "출근 저장소 정비 완료",
+                                failure: "출근 정비 실행 실패"
+                            )
+                        }
                     }
+                    .disabled(runner.isRunning)
                 }
-                .disabled(runner.isRunning)
 
                 Spacer()
+            }
+        }
+    }
+
+    private var personalToolActions: some View {
+        CommandGroup(title: "개인 프로젝트", subtitle: "Git 중심 점검", systemImage: "person.crop.circle") {
+            VStack(spacing: 8) {
+                DashboardButton(title: "오늘 흐름", systemImage: "point.topleft.down.curvedto.point.bottomright.up") {
+                    Task { await showTodayActivity() }
+                }
+                .disabled(runner.isRunning)
+
+                DashboardButton(title: "PR 상태", systemImage: "arrow.triangle.pull") {
+                    Task {
+                        await runDashboardCommand(
+                            ["dev", "pr-status"],
+                            title: "PR 상태",
+                            running: "열린 PR 상태를 확인하는 중...",
+                            success: "PR 상태 확인 완료",
+                            failure: "PR 상태 확인 실패"
+                        )
+                    }
+                }
+                .disabled(runner.isRunning)
+
+                DashboardButton(title: "CI 실패", systemImage: "xmark.seal") {
+                    Task {
+                        await runDashboardCommand(
+                            ["dev", "ci-alerts"],
+                            title: "CI 실패",
+                            running: "최근 CI 실패를 확인하는 중...",
+                            success: "CI 실패 확인 완료",
+                            failure: "CI 실패 확인 실패"
+                        )
+                    }
+                }
+                .disabled(runner.isRunning)
             }
         }
     }
@@ -357,11 +434,9 @@ struct WorkView: View {
                     Picker("필터", selection: $filter) {
                         Text("전체").tag("all")
                         Text("정비 필요").tag("needsUpdate")
-                        Text("변경 있음").tag("dirty")
-                        Text("올릴 커밋").tag("push")
                     }
                     .pickerStyle(.segmented)
-                    .frame(maxWidth: 520)
+                    .frame(width: 240)
 
                     Spacer()
 
@@ -391,33 +466,43 @@ struct WorkView: View {
                         message: "다른 필터를 선택하거나 상태를 새로고침해 주세요."
                     )
                 } else {
-                    VStack(spacing: 10) {
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.flexible(), spacing: 12, alignment: .top),
+                            GridItem(.flexible(), spacing: 12, alignment: .top),
+                        ],
+                        alignment: .leading,
+                        spacing: 12
+                    ) {
                         ForEach(filteredRepositories) { repo in
                             RepositoryDashboardRow(
                                 repo: repo,
+                                branches: branchOptionsByPath[repo.path] ?? [],
                                 isSelected: selectedPath == repo.path,
                                 isRunning: runner.isRunning,
                                 onSelect: {
                                     selectedPath = repo.path
                                 },
+                                onCheckout: { branch in
+                                    Task { await checkout(repo, branch: branch) }
+                                },
                                 onOpenIDE: {
                                     openIDE(repo)
                                 },
-                                onCommits: {
-                                    Task { await showTodayCommits(repo) }
-                                },
-                                onFetch: {
-                                    Task { await run(repo, mode: "fetch") }
-                                },
-                                onPull: {
-                                    Task { await run(repo, mode: "pull") }
-                                },
-                                onRebase: {
-                                    Task { await run(repo, mode: "rebase") }
-                                },
-                                onPush: {
-                                    Task { await run(repo, mode: "push") }
-                                }
+                                visibleCommitRows: workCommitPreviewRows
+                            )
+                            .opacity(draggingRepositoryPath == repo.path ? 0.58 : 1)
+                            .onDrag {
+                                draggingRepositoryPath = repo.path
+                                return NSItemProvider(object: repo.path as NSString)
+                            }
+                            .onDrop(
+                                of: [UTType.text],
+                                delegate: RepositoryDropDelegate(
+                                    targetPath: repo.path,
+                                    draggingPath: $draggingRepositoryPath,
+                                    move: moveRepository
+                                )
                             )
                         }
                     }
@@ -427,15 +512,22 @@ struct WorkView: View {
     }
 
     private var reportSection: some View {
-        DashboardPanel(title: "오늘 작업 보고서", systemImage: "doc.text") {
+        DashboardPanel(title: "오늘 한 일 초안", systemImage: "doc.text") {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     DashboardButton(title: "초안 만들기", systemImage: "doc.badge.gearshape") {
                         Task {
                             reportDraft = await runner.previewDailyReport(notes: reportNotes)
                             lastMessage = reportDraft
-                            showNotice(title: "보고서 미리보기", message: reportDraft, succeeded: !reportDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            showNotice(title: "오늘 한 일 초안", message: reportDraft, succeeded: !reportDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
+                    }
+                    .disabled(runner.isRunning)
+
+                    DashboardButton(title: "ChatGPT 전달용", systemImage: "bubble.left.and.text.bubble.right") {
+                        reportDraft = runner.makeChatGPTReportPrompt(draft: reportDraft, notes: reportNotes)
+                        lastMessage = reportDraft
+                        showNotice(title: "ChatGPT 전달용 프롬프트", message: reportDraft, succeeded: true)
                     }
                     .disabled(runner.isRunning)
 
@@ -444,45 +536,57 @@ struct WorkView: View {
                     }
                     .disabled(runner.isRunning)
 
-                    DashboardButton(title: "보고서 공유", systemImage: "paperplane.fill") {
-                        Task {
-                            lastMessage = await runner.sendEditedReport(reportDraft)
-                            showNotice(title: "보고서 공유", message: lastMessage, succeeded: !runner.status.contains("실패"))
+                    if !runner.isPersonalProfile {
+                        DashboardButton(title: "보고서 공유", systemImage: "paperplane.fill") {
+                            Task {
+                                lastMessage = await runner.sendEditedReport(reportDraft)
+                                showNotice(title: "보고서 공유", message: lastMessage, succeeded: !runner.status.contains("실패"))
+                            }
                         }
+                        .disabled(runner.isRunning || reportDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
-                    .disabled(runner.isRunning || reportDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                     Spacer()
                 }
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("수동 메모")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    TextEditor(text: $reportNotes)
-                        .font(.system(.body, design: .monospaced))
-                        .frame(minHeight: 80)
-                        .scrollContentBackground(.hidden)
-                        .padding(8)
-                        .background(Color(nsColor: .textBackgroundColor).opacity(0.72))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color(nsColor: .separatorColor).opacity(0.65))
-                        )
-                }
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("수동 메모")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextEditor(text: $reportNotes)
+                            .font(.system(.body, design: .monospaced))
+                            .frame(minHeight: 130)
+                            .scrollContentBackground(.hidden)
+                            .padding(8)
+                            .background(Color(nsColor: .textBackgroundColor).opacity(0.72))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color(nsColor: .separatorColor).opacity(0.65))
+                            )
+                    }
+                    .frame(maxWidth: 340)
 
-                TextEditor(text: $reportDraft)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(minHeight: 170)
-                    .scrollContentBackground(.hidden)
-                    .padding(8)
-                    .background(Color(nsColor: .textBackgroundColor).opacity(0.86))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color(nsColor: .separatorColor).opacity(0.8))
-                    )
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("보고서 초안")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextEditor(text: $reportDraft)
+                            .font(.system(.body, design: .monospaced))
+                            .frame(minHeight: 130)
+                            .scrollContentBackground(.hidden)
+                            .padding(8)
+                            .background(Color(nsColor: .textBackgroundColor).opacity(0.86))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color(nsColor: .separatorColor).opacity(0.8))
+                            )
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -551,11 +655,14 @@ struct WorkView: View {
 
     private func reload(notify: Bool = false, fetchRemote: Bool = false) async {
         isLoading = true
+        workCommitPreviewRows = runner.loadSettings().workCommitPreviewRowsOrDefault
         if fetchRemote {
-            repositories = await runner.refreshManagedRepositories(fetchRemote: true)
+            repositories = orderedRepositories(await runner.refreshManagedRepositories(fetchRemote: true))
         } else {
-            repositories = await runner.loadManagedRepositories()
+            repositories = orderedRepositories(await runner.loadManagedRepositories())
         }
+        syncRepositoryOrder()
+        await loadBranchOptions()
         isLoading = false
         if notify {
             showNotice(title: "상태 새로고침", message: "관리 중인 저장소 \(repositories.count)개의 상태를 다시 불러왔습니다.", succeeded: true)
@@ -568,10 +675,23 @@ struct WorkView: View {
             if Task.isCancelled {
                 return
             }
-            guard !runner.isRunning, !isLoading else {
+            guard !runner.isSetupOpen, !runner.isRunning, !isLoading else {
                 continue
             }
             await reload(fetchRemote: true)
+        }
+    }
+
+    private func jiraIssueWatchLoop() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 300 * 1_000_000_000)
+            if Task.isCancelled {
+                return
+            }
+            guard !runner.isSetupOpen, !runner.isPersonalProfile, !runner.isRunning else {
+                continue
+            }
+            await checkNewJiraIssues(showEmptyResult: false)
         }
     }
 
@@ -579,6 +699,60 @@ struct WorkView: View {
         selectedPath = repo.path
         lastMessage = await runner.loadTodayCommits(path: repo.path)
         showNotice(title: "\(repo.name) 오늘 커밋", message: lastMessage, succeeded: !runner.status.contains("실패"))
+    }
+
+    private func loadBranchOptions() async {
+        var options: [String: [BranchOption]] = [:]
+        for repo in repositories {
+            options[repo.path] = await runner.loadRepositoryBranches(path: repo.path)
+        }
+        branchOptionsByPath = options
+    }
+
+    private func orderedRepositories(_ values: [LocalRepositoryOption]) -> [LocalRepositoryOption] {
+        let indexByPath = Dictionary(uniqueKeysWithValues: repositoryOrder.enumerated().map { ($0.element, $0.offset) })
+        return values.sorted {
+            let left = indexByPath[$0.path] ?? Int.max
+            let right = indexByPath[$1.path] ?? Int.max
+            if left != right {
+                return left < right
+            }
+            return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
+
+    private func syncRepositoryOrder() {
+        var paths = repositoryOrder.filter { path in repositories.contains(where: { $0.path == path }) }
+        for repo in repositories where !paths.contains(repo.path) {
+            paths.append(repo.path)
+        }
+        repositoryOrderRaw = paths.joined(separator: "\n")
+    }
+
+    private func moveRepository(draggingPath: String, targetPath: String) {
+        var paths = repositoryOrder
+        if paths.isEmpty {
+            paths = orderedRepositories(repositories).map(\.path)
+        }
+        guard
+            let sourceIndex = paths.firstIndex(of: draggingPath),
+            let targetIndex = paths.firstIndex(of: targetPath),
+            sourceIndex != targetIndex
+        else {
+            return
+        }
+
+        let sourcePath = paths.remove(at: sourceIndex)
+        paths.insert(sourcePath, at: targetIndex)
+        repositoryOrderRaw = paths.joined(separator: "\n")
+        repositories = orderedRepositories(repositories)
+    }
+
+    private func checkout(_ repo: LocalRepositoryOption, branch: String) async {
+        selectedPath = repo.path
+        let result = await runner.checkoutRepositoryBranch(path: repo.path, branch: branch)
+        showNotice(title: "\(repo.name) 브랜치 변경", message: result.displayText, succeeded: result.succeeded)
+        await reload()
     }
 
     private func openIDE(_ repo: LocalRepositoryOption) {
@@ -590,6 +764,15 @@ struct WorkView: View {
     private func showTodayActivity() async {
         lastMessage = await runner.loadTodayActivity()
         showNotice(title: "오늘 흐름", message: lastMessage, succeeded: !runner.status.contains("실패"))
+    }
+
+    private func checkNewJiraIssues(showEmptyResult: Bool) async {
+        let result = await runner.checkNewJiraIssues()
+        lastMessage = result.displayText
+        let hasNewIssues = result.displayText.hasPrefix("새로 등록된 Jira 일감")
+        if showEmptyResult || hasNewIssues || !result.succeeded {
+            showNotice(title: "새 Jira 일감", message: result.displayText, succeeded: result.succeeded)
+        }
     }
 
     private func run(_ repo: LocalRepositoryOption, mode: String, skipWarning: Bool = false) async {
@@ -618,5 +801,27 @@ struct WorkView: View {
 
     private func showNotice(title: String, message: String, succeeded: Bool) {
         notice = WorkNotice(title: title, message: message, succeeded: succeeded)
+    }
+}
+
+private struct RepositoryDropDelegate: DropDelegate {
+    let targetPath: String
+    @Binding var draggingPath: String?
+    let move: (_ draggingPath: String, _ targetPath: String) -> Void
+
+    func dropEntered(info: DropInfo) {
+        guard let draggingPath, draggingPath != targetPath else {
+            return
+        }
+        move(draggingPath, targetPath)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggingPath = nil
+        return true
     }
 }

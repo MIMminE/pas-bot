@@ -25,6 +25,216 @@ struct StatusPill: View {
     }
 }
 
+struct WorkSidebarView: View {
+    @Binding var selectedSection: String
+    @Binding var isCollapsed: Bool
+    let activeProfileID: String
+    let profiles: [PASProfile]
+    let repositoryCount: Int
+    let reportReady: Bool
+    let onProfileChange: (String) -> Void
+
+    private var width: CGFloat {
+        isCollapsed ? 68 : 218
+    }
+
+    var body: some View {
+        VStack(alignment: isCollapsed ? .center : .leading, spacing: 14) {
+            sidebarHeader
+            profilePicker
+
+            VStack(spacing: 6) {
+                WorkSidebarButton(
+                    title: "워크스페이스",
+                    systemImage: "folder.badge.gearshape",
+                    detail: repositoryCount > 0 ? "\(repositoryCount)" : nil,
+                    isSelected: selectedSection == "workspace",
+                    isCollapsed: isCollapsed
+                ) {
+                    selectedSection = "workspace"
+                }
+
+                WorkSidebarButton(
+                    title: "보고서",
+                    systemImage: "doc.text",
+                    detail: reportReady ? "작성됨" : nil,
+                    isSelected: selectedSection == "report",
+                    isCollapsed: isCollapsed
+                ) {
+                    selectedSection = "report"
+                }
+
+                WorkSidebarButton(
+                    title: "실행 보드",
+                    systemImage: "rectangle.grid.2x2",
+                    detail: nil,
+                    isSelected: selectedSection == "tools",
+                    isCollapsed: isCollapsed
+                ) {
+                    selectedSection = "tools"
+                }
+            }
+
+            Spacer()
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    isCollapsed.toggle()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: isCollapsed ? "sidebar.left" : "sidebar.leading")
+                    if !isCollapsed {
+                        Text("메뉴 접기")
+                        Spacer(minLength: 0)
+                    }
+                }
+                .font(.caption)
+                .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
+                .padding(.horizontal, isCollapsed ? 0 : 10)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.58))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .help(isCollapsed ? "메뉴 펼치기" : "메뉴 접기")
+        }
+        .padding(.horizontal, isCollapsed ? 10 : 14)
+        .padding(.vertical, 16)
+        .frame(width: width)
+        .frame(maxHeight: .infinity)
+        .background(.regularMaterial)
+        .animation(.easeInOut(duration: 0.18), value: isCollapsed)
+    }
+
+    private var sidebarHeader: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.accentColor.opacity(0.16))
+                Image(systemName: "bolt.horizontal.circle.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .frame(width: 34, height: 34)
+
+            if !isCollapsed {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("PAS")
+                        .font(.headline)
+                    Text("Work")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
+    }
+
+    private var profilePicker: some View {
+        Group {
+            if isCollapsed {
+                Menu {
+                    ForEach(profiles) { profile in
+                        Button {
+                            onProfileChange(profile.id)
+                        } label: {
+                            Label(profile.title, systemImage: profile.systemImage)
+                        }
+                    }
+                } label: {
+                    Image(systemName: activeProfile.systemImage)
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 42, height: 34)
+                        .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .menuStyle(.borderlessButton)
+                .help("프로필 전환")
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("프로필")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    Picker("프로필", selection: profileSelection) {
+                        ForEach(profiles) { profile in
+                            Label(profile.title, systemImage: profile.systemImage)
+                                .tag(profile.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+
+                    Text(activeProfile.subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                .padding(9)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.55))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+        }
+    }
+
+    private var activeProfile: PASProfile {
+        PASProfile.profile(for: activeProfileID) ?? .work
+    }
+
+    private var profileSelection: Binding<String> {
+        Binding(
+            get: { activeProfileID },
+            set: { onProfileChange($0) }
+        )
+    }
+}
+
+struct WorkSidebarButton: View {
+    let title: String
+    let systemImage: String
+    let detail: String?
+    let isSelected: Bool
+    let isCollapsed: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 9) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 20)
+
+                if !isCollapsed {
+                    Text(title)
+                        .font(.callout)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    if let detail {
+                        Text(detail)
+                            .font(.caption2)
+                            .lineLimit(1)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color(nsColor: .controlBackgroundColor).opacity(0.85))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: isCollapsed ? .center : .leading)
+            .padding(.horizontal, isCollapsed ? 0 : 10)
+            .padding(.vertical, 9)
+            .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+            .background(isSelected ? Color.accentColor.opacity(0.14) : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .help(title)
+    }
+}
+
 struct DashboardPanel<Content: View>: View {
     let title: String
     let systemImage: String
@@ -47,6 +257,56 @@ struct DashboardPanel<Content: View>: View {
             }
 
             content
+        }
+        .padding(14)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.55))
+        )
+    }
+}
+
+struct CollapsibleDashboardPanel<Content: View>: View {
+    let title: String
+    let systemImage: String
+    @Binding var isExpanded: Bool
+    let content: Content
+
+    init(title: String, systemImage: String, isExpanded: Binding<Bool>, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.systemImage = systemImage
+        self._isExpanded = isExpanded
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: isExpanded ? 13 : 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: systemImage)
+                        .foregroundStyle(Color.accentColor)
+                    Text(title)
+                        .font(.headline)
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .rotationEffect(.degrees(isExpanded ? 0 : -90))
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                content
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
         .padding(14)
         .background(.regularMaterial)
@@ -128,87 +388,77 @@ struct CommandGroup<Content: View>: View {
 
 struct RepositoryDashboardRow: View {
     let repo: LocalRepositoryOption
+    let branches: [BranchOption]
     let isSelected: Bool
     let isRunning: Bool
     let onSelect: () -> Void
+    let onCheckout: (String) -> Void
     let onOpenIDE: () -> Void
-    let onCommits: () -> Void
-    let onFetch: () -> Void
-    let onPull: () -> Void
-    let onRebase: () -> Void
-    let onPush: () -> Void
+    let visibleCommitRows: Int
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(statusColor.opacity(0.16))
-                    Image(systemName: statusImage)
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(statusColor)
+                RepoStatusIcon(statusImage: statusImage, statusColor: statusColor)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    repoTitleRow
+                    repoBadges
                 }
-                .frame(width: 42, height: 42)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: 8) {
-                        Text(repo.name)
-                            .font(.headline)
-                        Text(repo.branch)
-                            .font(.caption)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(Color(nsColor: .controlBackgroundColor).opacity(0.9))
-                            .clipShape(RoundedRectangle(cornerRadius: 7))
-                    }
+            RepoGuidanceView(
+                title: guidanceTitle,
+                message: guidanceMessage,
+                color: statusColor
+            )
 
-                    Text(repo.path)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-
-                    HStack(spacing: 8) {
-                        RepoStatusBadge(text: repo.syncLabel, color: statusColor)
-                        RepoStatusBadge(text: repo.baseLabel, color: repo.needsBaseRebase ? .red : .blue)
-                        if repo.dirtyCount > 0 {
-                            RepoStatusBadge(text: "변경 \(repo.dirtyCount)", color: .orange)
-                        }
-                    }
-
-                    RepoGuidanceView(
-                        title: guidanceTitle,
-                        message: guidanceMessage,
-                        color: statusColor
-                    )
-                }
-
-                Spacer()
-
-                HStack(spacing: 6) {
-                    RepoIconButton(title: "IDE", systemImage: "macwindow", action: onOpenIDE)
-                        .disabled(isRunning)
-                    RepoIconButton(title: "오늘 커밋", systemImage: "list.bullet.rectangle", action: onCommits)
-                        .disabled(isRunning)
-                    RepoIconButton(title: "원격 확인", systemImage: "arrow.triangle.2.circlepath", action: onFetch)
-                        .disabled(isRunning)
-                    RepoIconButton(title: "최신화", systemImage: "arrow.down", action: onPull)
-                        .disabled(isRunning || !repo.canFastForward || repo.dirtyCount > 0)
-                    RepoIconButton(title: "재정렬", systemImage: "arrow.triangle.branch", action: onRebase)
-                        .disabled(isRunning || !repo.needsUpdate || repo.dirtyCount > 0)
-                    RepoIconButton(title: "올리기", systemImage: "arrow.up", action: onPush)
-                        .disabled(isRunning || (repo.ahead ?? 0) == 0 || !repo.isJiraWorkBranch)
-                }
+            VStack(alignment: .leading, spacing: 10) {
+                TodayCommitInlineView(repo: repo, visibleRows: visibleCommitRows)
+                GitHubRepoOverviewView(repo: repo)
             }
         }
-        .padding(12)
-        .background(isSelected ? Color.accentColor.opacity(0.13) : Color(nsColor: .textBackgroundColor).opacity(0.78))
+        .padding(16)
+        .background(isSelected ? Color.accentColor.opacity(0.16) : Color(nsColor: .textBackgroundColor).opacity(0.88))
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(isSelected ? Color.accentColor.opacity(0.75) : Color(nsColor: .separatorColor).opacity(0.45))
+                .stroke(isSelected ? Color.accentColor.opacity(0.85) : Color(nsColor: .separatorColor).opacity(0.72), lineWidth: isSelected ? 1.4 : 1)
         )
+        .shadow(color: .black.opacity(0.08), radius: 8, y: 3)
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
+    }
+
+    private var repoTitleRow: some View {
+        HStack(spacing: 8) {
+            Text(repo.name)
+                .font(.system(size: 15, weight: .semibold))
+                .help(repo.path)
+            BranchPicker(
+                currentBranch: repo.branch,
+                branches: branches,
+                isDisabled: isRunning || repo.dirtyCount > 0,
+                onCheckout: onCheckout
+            )
+            SmallIDEButton(action: onOpenIDE)
+                .disabled(isRunning)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var repoBadges: some View {
+        HStack(spacing: 8) {
+            RepoStatusBadge(text: repo.syncLabel, color: statusColor)
+            RepoStatusBadge(text: repo.baseLabel, color: repo.needsBaseRebase ? .red : .blue)
+            if !repo.autoSyncLabel.isEmpty {
+                RepoStatusBadge(text: repo.autoSyncLabel, color: .green, helpText: repo.autoSyncMessage)
+            }
+            if repo.dirtyCount > 0 {
+                RepoStatusBadge(text: "변경 \(repo.dirtyCount)", color: .orange)
+            }
+        }
     }
 
     private var statusColor: Color {
@@ -216,6 +466,9 @@ struct RepositoryDashboardRow: View {
             return .orange
         }
         if repo.isProtectedWorkflowBranch {
+            return .red
+        }
+        if !repo.baseRebaseAlert.isEmpty {
             return .red
         }
         if repo.needsBaseRebase {
@@ -243,6 +496,9 @@ struct RepositoryDashboardRow: View {
         if repo.isProtectedWorkflowBranch {
             return "lock.fill"
         }
+        if !repo.baseRebaseAlert.isEmpty {
+            return "exclamationmark.octagon.fill"
+        }
         if repo.needsBaseRebase {
             return "arrow.triangle.merge"
         }
@@ -267,6 +523,12 @@ struct RepositoryDashboardRow: View {
         }
         if repo.isProtectedWorkflowBranch {
             return "기준 브랜치 보호"
+        }
+        if !repo.autoSyncMessage.isEmpty {
+            return "자동 처리 완료"
+        }
+        if !repo.baseRebaseAlert.isEmpty {
+            return "자동 rebase 확인 필요"
         }
         if repo.needsBaseRebase {
             return "기준 브랜치 rebase 필요"
@@ -296,6 +558,12 @@ struct RepositoryDashboardRow: View {
         if repo.isProtectedWorkflowBranch {
             return "설정된 기준 브랜치가 아닌 보호 브랜치입니다. Jira 일감에서 작업 브랜치를 만든 뒤 PR로 반영하세요."
         }
+        if !repo.autoSyncMessage.isEmpty {
+            return repo.autoSyncMessage
+        }
+        if !repo.baseRebaseAlert.isEmpty {
+            return repo.baseRebaseAlert
+        }
         if repo.needsBaseRebase {
             return "현재 작업 브랜치가 기준 \(repo.baseBranch)보다 \(baseBehind)커밋 뒤처졌습니다. Fetch 후 Rebase로 정렬하세요."
         }
@@ -322,6 +590,257 @@ struct RepositoryDashboardRow: View {
             return "1. 원격 상태 확인 -> 2. 테스트 -> 3. Push"
         }
         return "추가 조치 없이 작업을 시작해도 됩니다."
+    }
+}
+
+struct RepoStatusIcon: View {
+    let statusImage: String
+    let statusColor: Color
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(statusColor.opacity(0.18))
+            Image(systemName: statusImage)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(statusColor)
+        }
+        .frame(width: 42, height: 42)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(statusColor.opacity(0.28))
+        )
+    }
+}
+
+struct GitHubRepoOverviewView: View {
+    let repo: LocalRepositoryOption
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Image(systemName: "point.3.connected.trianglepath.dotted")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("GitHub")
+                    .font(.caption)
+                    .bold()
+                Spacer(minLength: 0)
+            }
+
+            GitHubSummaryLine(label: "PR", value: repo.pullRequestSummary.isEmpty ? "PR 정보 없음" : repo.pullRequestSummary)
+            GitHubSummaryLine(label: "릴리즈", value: repo.releaseSummary.isEmpty ? "릴리즈 정보 없음" : repo.releaseSummary)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.78))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.55))
+        )
+    }
+}
+
+struct GitHubSummaryLine: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.caption2)
+                .bold()
+                .foregroundStyle(.secondary)
+                .frame(width: 40, alignment: .leading)
+            Text(value)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .help(value)
+    }
+}
+
+struct BranchPicker: View {
+    let currentBranch: String
+    let branches: [BranchOption]
+    let isDisabled: Bool
+    let onCheckout: (String) -> Void
+
+    var body: some View {
+        Menu {
+            if branches.isEmpty {
+                Text("브랜치 목록 없음")
+            } else {
+                ForEach(branches) { branch in
+                    Button {
+                        if branch.name != currentBranch {
+                            onCheckout(branch.name)
+                        }
+                    } label: {
+                        HStack {
+                            Text(branch.label)
+                            if branch.name == currentBranch {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Text(currentBranch)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption2)
+            }
+            .font(.caption)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.9))
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .menuStyle(.borderlessButton)
+        .disabled(isDisabled)
+        .help(isDisabled && !branches.isEmpty ? "변경 파일이 있으면 브랜치 변경을 막습니다." : "브랜치 체크아웃")
+    }
+}
+
+struct TodayCommitInlineView: View {
+    let repo: LocalRepositoryOption
+    let visibleRows: Int
+
+    private var rowHeight: CGFloat {
+        18
+    }
+
+    private var listHeight: CGFloat {
+        rowHeight * CGFloat(max(1, visibleRows)) + 6
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: repo.todayCommitCount > 0 ? "checkmark.circle.fill" : "clock")
+                    .font(.caption)
+                    .foregroundStyle(repo.todayCommitCount > 0 ? .green : .secondary)
+                Text(repo.todayCommitLabel)
+                    .font(.caption)
+                    .bold(repo.todayCommitCount > 0)
+                    .foregroundStyle(repo.todayCommitCount > 0 ? .primary : .secondary)
+                    .lineLimit(1)
+            }
+
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 3) {
+                    if repo.todayCommitLines.isEmpty {
+                        Text("오늘 이 repository에서 확인된 작업이 없습니다.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    } else {
+                        ForEach(Array(repo.todayCommitLines.enumerated()), id: \.offset) { _, line in
+                            CommitPreviewLine(line: line)
+                                .frame(height: rowHeight)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: listHeight)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.86))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.58))
+        )
+        .help(repo.todayCommitLabel)
+    }
+}
+
+struct CommitPreviewLine: View {
+    let line: String
+
+    private var parts: (kind: String, time: String, hash: String, message: String) {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pieces = trimmed.split(separator: " ", maxSplits: 4).map(String.init)
+        if pieces.count >= 5, pieces[2] == "전" {
+            return (pieces[0], "\(pieces[1]) 전", pieces[3], pieces[4])
+        }
+        if pieces.count >= 4, pieces[1] == "방금" {
+            return (pieces[0], "방금", pieces[2], pieces[3])
+        }
+        if pieces.count >= 4, pieces[1] == "전" {
+            return ("", "\(pieces[0]) 전", pieces[2], pieces[3])
+        }
+        if pieces.count >= 3, pieces[0] == "방금" {
+            return ("", "방금", pieces[1], pieces[2])
+        }
+        guard let split = trimmed.firstIndex(where: { $0 == " " || $0 == "\t" }) else {
+            return ("", "", "", trimmed)
+        }
+        let hash = String(trimmed[..<split])
+        let message = String(trimmed[trimmed.index(after: split)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return ("", "", hash, message)
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if !parts.kind.isEmpty {
+                Text(parts.kind)
+                    .font(.caption2)
+                    .bold()
+                    .foregroundStyle(parts.kind == "머지" ? .purple : .secondary)
+                    .lineLimit(1)
+                    .frame(width: 30, alignment: .leading)
+            }
+            if !parts.time.isEmpty {
+                Text(parts.time)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(width: 48, alignment: .leading)
+            }
+            if !parts.hash.isEmpty {
+                Text(parts.hash)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(width: 50, alignment: .leading)
+            }
+            Text(parts.message)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+struct SmallIDEButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label("IDE", systemImage: "macwindow")
+                .font(.caption)
+                .labelStyle(.titleAndIcon)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .help("IDE에서 열기")
     }
 }
 
@@ -355,29 +874,10 @@ struct RepoGuidanceView: View {
     }
 }
 
-struct RepoIconButton: View {
-    let title: String
-    let systemImage: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 14, weight: .semibold))
-                Text(title)
-                    .font(.caption2)
-            }
-            .frame(width: 68, height: 42)
-        }
-        .buttonStyle(.bordered)
-        .help(title)
-    }
-}
-
 struct RepoStatusBadge: View {
     let text: String
     let color: Color
+    var helpText: String?
 
     var body: some View {
         Text(text)
@@ -388,6 +888,7 @@ struct RepoStatusBadge: View {
             .foregroundStyle(color)
             .background(color.opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: 7))
+            .help(helpText ?? text)
     }
 }
 

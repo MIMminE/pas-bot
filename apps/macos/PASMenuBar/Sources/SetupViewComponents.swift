@@ -1,5 +1,21 @@
 import SwiftUI
 
+struct ProfileBadge: View {
+    let profile: PASProfile
+
+    var body: some View {
+        Label(profile.title, systemImage: profile.systemImage)
+            .font(.caption)
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.accentColor.opacity(0.12))
+            .foregroundStyle(Color.accentColor)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .help(profile.subtitle)
+    }
+}
+
 struct SettingsTextField: View {
     let title: String
     let placeholder: String
@@ -61,10 +77,7 @@ struct SettingsSection<Content: View>: View {
     }
 
     var body: some View {
-        DisclosureGroup(isExpanded: $isExpanded) {
-            content
-                .padding(.top, 12)
-        } label: {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 Image(systemName: systemImage)
                     .font(.system(size: 15, weight: .semibold))
@@ -79,7 +92,11 @@ struct SettingsSection<Content: View>: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                Spacer()
             }
+
+            content
         }
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor))
@@ -238,7 +255,7 @@ struct LocalRepositoryProjectPicker: View {
 
                                 Text(repo.baseLabel)
                                     .font(.caption)
-                                    .foregroundStyle(repo.needsBaseRebase ? .red : .secondary)
+                                    .foregroundStyle(repo.needsBaseRebase || !repo.baseRebaseAlert.isEmpty ? .red : .secondary)
                             }
 
                             Text("\(repo.syncLabel) | \(repo.path)")

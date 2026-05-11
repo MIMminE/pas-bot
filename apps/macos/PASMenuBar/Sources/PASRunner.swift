@@ -10,20 +10,25 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
     @Published var status = "대기 중"
     @Published var lastOutput = ""
     @Published var isHandlingDeepLink = false
+    @Published var activeProfileID = PASProfile.work.id
+    @Published var activeProfileIDs: Set<String> = [PASProfile.work.id]
+    @Published var isSetupOpen = false
 
     private var setupWindow: NSWindow?
     private var workWindow: NSWindow?
     private var outputWindow: NSWindow?
     private var issueLinkWindow: NSWindow?
     private var reportAgentWindow: NSWindow?
-    private var shouldOpenSetupOnLaunch = true
+    private var shouldOpenDashboardOnLaunch = true
 
     override init() {
         super.init()
+        activeProfileIDs = Self.enabledProfileIDs()
+        activeProfileID = Self.currentProfileID()
         try? Self.prepareSupportFiles()
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.shouldOpenSetupOnLaunch else { return }
-            self.openSetupWindow()
+            guard let self, self.shouldOpenDashboardOnLaunch else { return }
+            self.openWorkWindow()
         }
     }
 
@@ -50,9 +55,64 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
     }
 
     func openSupportDirectory() {
-        let directory = Self.supportDirectory()
+        let directory = Self.activeSupportDirectory()
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         NSWorkspace.shared.open(directory)
+    }
+
+    func switchProfile(to profileID: String) {
+        guard PASProfile.profile(for: profileID) != nil, activeProfileIDs.contains(profileID) else {
+            status = "비활성 프로필입니다"
+            return
+        }
+        UserDefaults.standard.set(profileID, forKey: Self.activeProfileDefaultsKey)
+        activeProfileID = profileID
+        do {
+            try Self.prepareSupportFiles()
+            status = "\(activeProfile.title) 프로필로 전환했습니다"
+        } catch {
+            status = "프로필 전환 준비 실패: \(error.localizedDescription)"
+        }
+    }
+
+    var activeProfile: PASProfile {
+        PASProfile.profile(for: activeProfileID) ?? .work
+    }
+
+    var availableProfiles: [PASProfile] {
+        PASProfile.all.filter { activeProfileIDs.contains($0.id) }
+    }
+
+    func isProfileEnabled(_ profileID: String) -> Bool {
+        activeProfileIDs.contains(profileID)
+    }
+
+    func setProfileEnabled(_ profileID: String, enabled: Bool) {
+        guard PASProfile.profile(for: profileID) != nil else { return }
+        if profileID == PASProfile.work.id && !enabled {
+            status = "업무 프로필은 비활성화할 수 없습니다"
+            return
+        }
+
+        var ids = activeProfileIDs
+        if enabled {
+            ids.insert(profileID)
+        } else {
+            ids.remove(profileID)
+        }
+        ids.insert(PASProfile.work.id)
+        activeProfileIDs = ids
+        Self.saveEnabledProfileIDs(ids)
+
+        if !ids.contains(activeProfileID) {
+            switchProfile(to: PASProfile.work.id)
+        } else {
+            status = "\(PASProfile.profile(for: profileID)?.title ?? profileID) 프로필을 \(enabled ? "활성화" : "비활성화")했습니다"
+        }
+    }
+
+    var isPersonalProfile: Bool {
+        activeProfile.kind == .personal
     }
 
     func openReportAgentEditor() {
@@ -128,7 +188,7 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
     }
 
     func handleDeepLink(_ url: URL) {
-        shouldOpenSetupOnLaunch = false
+        shouldOpenDashboardOnLaunch = false
         isHandlingDeepLink = true
         guard url.scheme == "pas" else {
             status = "지원하지 않는 PAS 링크입니다"
@@ -203,15 +263,20 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
     }
 
     func openSetupWindow() {
+        NSApplication.shared.setActivationPolicy(.regular)
         if let setupWindow {
-            setupWindow.makeKeyAndOrderFront(nil)
+            if let parent = setupWindow.sheetParent {
+                parent.makeKeyAndOrderFront(nil)
+            } else {
+                setupWindow.makeKeyAndOrderFront(nil)
+            }
             NSApplication.shared.activate(ignoringOtherApps: true)
             return
         }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 720),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 560),
+            styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
@@ -221,7 +286,14 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.delegate = self
         setupWindow = window
-        window.makeKeyAndOrderFront(nil)
+        isSetupOpen = true
+        if let workWindow {
+            workWindow.beginSheet(window)
+            workWindow.makeKeyAndOrderFront(nil)
+        } else {
+            window.center()
+            window.makeKeyAndOrderFront(nil)
+        }
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
@@ -276,7 +348,14 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
     }
 
     func closeSetupWindow() {
-        setupWindow?.close()
+        guard let setupWindow else { return }
+        if let parent = setupWindow.sheetParent {
+            parent.endSheet(setupWindow)
+            self.setupWindow = nil
+            self.isSetupOpen = false
+        } else {
+            setupWindow.close()
+        }
     }
 
     func closeWorkWindow() {
@@ -298,6 +377,7 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
                 self.workWindow = nil
             } else if window === self.setupWindow {
                 self.setupWindow = nil
+                self.isSetupOpen = false
             } else if window === self.outputWindow {
                 self.outputWindow = nil
             } else if window === self.issueLinkWindow {
@@ -412,7 +492,7 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
     func openGitHubLoginInTerminal() {
         do {
             try Self.prepareSupportFiles()
-            let scriptURL = Self.supportDirectory().appendingPathComponent("gh-auth-login.command")
+            let scriptURL = Self.activeSupportDirectory().appendingPathComponent("gh-auth-login.command")
             let script = """
             #!/bin/zsh
             clear
@@ -492,6 +572,30 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
             openOutputWindow(title: "Git 작업 오류", output: result.output.isEmpty ? result.summary : result.output)
         }
         return result.output.isEmpty ? result.summary : result.output
+    }
+
+    func loadRepositoryBranches(path: String) async -> [BranchOption] {
+        let result = await Self.executeDetached(["repo", "branches", "--repo", path, "--format", "tsv"])
+        if !result.succeeded {
+            return []
+        }
+        return Self.parseBranchOptions(result.output)
+    }
+
+    func checkoutRepositoryBranch(path: String, branch: String) async -> PASCommandResult {
+        guard !isRunning else {
+            return PASCommandResult(succeeded: false, output: "", summary: "이미 실행 중인 작업이 있습니다.")
+        }
+        isRunning = true
+        status = "\(branch) 체크아웃 중..."
+        let result = await Self.executeDetached(["repo", "checkout", "--repo", path, "--branch", branch])
+        lastOutput = result.output
+        status = result.succeeded ? "\(branch) 체크아웃 완료" : "\(branch) 체크아웃 실패"
+        isRunning = false
+        if !result.succeeded {
+            openOutputWindow(title: "브랜치 체크아웃 오류", output: result.output.isEmpty ? result.summary : result.output)
+        }
+        return PASCommandResult(succeeded: result.succeeded, output: result.output, summary: result.summary)
     }
 
     func runDashboardCommand(
@@ -580,12 +684,27 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
         return result.output.isEmpty ? result.summary : result.output
     }
 
+    func checkNewJiraIssues() async -> PASCommandResult {
+        status = "새 Jira 일감을 확인하는 중..."
+        let result = await Self.executeDetached(["jira", "watch-new"])
+        lastOutput = result.output
+        status = result.succeeded ? "새 Jira 일감 확인 완료" : "새 Jira 일감 확인 실패"
+        if !result.succeeded {
+            openOutputWindow(title: "새 Jira 일감 확인 오류", output: result.output.isEmpty ? result.summary : result.output)
+        }
+        return PASCommandResult(succeeded: result.succeeded, output: result.output, summary: result.summary)
+    }
+
     func previewDailyReport(notes: String = "") async -> String {
-        status = "오늘 작업 보고서를 만드는 중..."
-        var arguments = ["repo", "report", "--snapshot", "morning", "--dry-run", "--report-agent-file", Self.reportAgentURL().path]
+        status = "오늘 한 일 초안을 만드는 중..."
+        var arguments = ["repo", "daily-draft"]
+        return await createReport(arguments: &arguments, notes: notes, runningTitle: "오늘 한 일 초안", failureTitle: "오늘 한 일 초안 생성 오류")
+    }
+
+    private func createReport(arguments: inout [String], notes: String, runningTitle: String, failureTitle: String) async -> String {
         var notesURL: URL?
         if !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let temporaryNotesURL = Self.supportDirectory().appendingPathComponent("report-notes-\(UUID().uuidString).txt")
+            let temporaryNotesURL = Self.activeSupportDirectory().appendingPathComponent("report-notes-\(UUID().uuidString).txt")
             do {
                 try notes.write(to: temporaryNotesURL, atomically: true, encoding: .utf8)
                 notesURL = temporaryNotesURL
@@ -601,15 +720,39 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
             try? FileManager.default.removeItem(at: notesURL)
         }
         lastOutput = result.output
-        status = result.succeeded ? "오늘 작업 보고서를 만들었습니다" : "오늘 작업 보고서 생성 실패"
+        status = result.succeeded ? "\(runningTitle)을 만들었습니다" : "\(runningTitle) 생성 실패"
         if !result.succeeded {
-            openOutputWindow(title: "오늘 작업 보고서 생성 오류", output: result.output.isEmpty ? result.summary : result.output)
+            openOutputWindow(title: failureTitle, output: result.output.isEmpty ? result.summary : result.output)
         }
-        return Self.stripDryRunPrefix(result.output.isEmpty ? result.summary : result.output)
+        return result.output.isEmpty ? result.summary : result.output
+    }
+
+    func makeChatGPTReportPrompt(draft: String, notes: String = "") -> String {
+        let rules = (try? String(contentsOf: Self.reportAgentURL(), encoding: .utf8)) ?? ""
+        let noteSection = notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "- 없음" : notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let draftSection = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "- 먼저 초안 만들기를 실행해 Git 근거를 채워 주세요." : draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        return """
+        아래 Git 근거와 수동 메모를 바탕으로 한국어 일일 업무 보고서를 작성해줘.
+
+        조건:
+        - 확인된 사실과 추정을 구분해줘.
+        - 커밋 메시지만으로 알 수 없는 내용은 단정하지 마.
+        - Slack에 바로 보낼 수 있게 간결하게 작성해줘.
+        - 섹션은 오늘 한 일, 주요 변경점, 확인 필요, 내일 이어갈 일 순서로 정리해줘.
+
+        [보고서 작성 규칙]
+        \(rules.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "- 기본 형식: 오늘 한 일, 주요 변경점, 확인 필요, 내일 이어갈 일" : rules.trimmingCharacters(in: .whitespacesAndNewlines))
+
+        [수동 메모]
+        \(noteSection)
+
+        [Git 근거 초안]
+        \(draftSection)
+        """
     }
 
     func sendEditedReport(_ text: String) async -> String {
-        let url = Self.supportDirectory().appendingPathComponent("edited-report-\(UUID().uuidString).txt")
+        let url = Self.activeSupportDirectory().appendingPathComponent("edited-report-\(UUID().uuidString).txt")
         do {
             try text.write(to: url, atomically: true, encoding: .utf8)
         } catch {
@@ -659,10 +802,31 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
                     baseRef: parts.count > 7 ? String(parts[7]) : "",
                     baseBehind: parts.count > 8 ? Int(String(parts[8])) : nil,
                     baseAhead: parts.count > 9 ? Int(String(parts[9])) : nil,
-                    isWorkingBranch: parts.count > 10 ? String(parts[10]) == "1" : false
+                    isWorkingBranch: parts.count > 10 ? String(parts[10]) == "1" : false,
+                    baseRebaseAlert: parts.count > 11 ? String(parts[11]) : "",
+                    todayCommitCount: parts.count > 12 ? Int(String(parts[12])) ?? 0 : 0,
+                    todayCommitLatest: parts.count > 13 ? String(parts[13]) : "",
+                    baseCommitSummary: parts.count > 14 ? String(parts[14]) : "",
+                    autoSyncMessage: parts.count > 15 ? String(parts[15]) : "",
+                    pullRequestSummary: parts.count > 16 ? String(parts[16]) : "",
+                    releaseSummary: parts.count > 17 ? String(parts[17]) : ""
                 )
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private nonisolated static func parseBranchOptions(_ output: String) -> [BranchOption] {
+        output
+            .split(separator: "\n")
+            .compactMap { line in
+                let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
+                guard parts.count >= 3 else { return nil }
+                return BranchOption(
+                    name: String(parts[0]),
+                    current: String(parts[1]) == "1",
+                    remote: String(parts[2]) == "1"
+                )
+            }
     }
 
     private nonisolated static func parseRemoteRepositories(_ output: String) -> [GitHubRemoteRepositoryOption] {
@@ -762,6 +926,7 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
         var environment = ProcessInfo.processInfo.environment
         let existingPath = environment["PATH"] ?? ""
         let extraPaths = [
+            projectRootURL().appendingPathComponent(".venv/bin").path,
             "/opt/homebrew/bin",
             "/usr/local/bin",
             "/usr/bin",
@@ -772,6 +937,7 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
         environment["PATH"] = ([existingPath] + extraPaths)
             .filter { !$0.isEmpty }
             .joined(separator: ":")
+        environment["PAS_APP_DATA_DIR"] = activeSupportDirectory().path
         return environment
     }
 
@@ -818,7 +984,7 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
 
     private nonisolated static func prepareSupportFiles() throws {
         let fileManager = FileManager.default
-        let directory = supportDirectory()
+        let directory = activeSupportDirectory()
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: logsDirectory(), withIntermediateDirectories: true)
         try fileManager.createDirectory(at: snapshotsDirectory(), withIntermediateDirectories: true)
@@ -839,10 +1005,26 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
     }
 
     private nonisolated static func pasExecutable() -> (url: URL, prefixArguments: [String]) {
+        if let explicit = ProcessInfo.processInfo.environment["PAS_BIN"], !explicit.isEmpty {
+            return (URL(fileURLWithPath: explicit), [])
+        }
         if let bundled = Bundle.main.url(forResource: "pas", withExtension: nil, subdirectory: "bin") {
             return (bundled, [])
         }
+        let developmentPas = projectRootURL().appendingPathComponent(".venv/bin/pas")
+        if FileManager.default.isExecutableFile(atPath: developmentPas.path) {
+            return (developmentPas, [])
+        }
         return (URL(fileURLWithPath: "/usr/bin/env"), ["pas"])
+    }
+
+    private nonisolated static func projectRootURL() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
     }
 
     private nonisolated static func supportDirectory() -> URL {
@@ -851,28 +1033,63 @@ final class PASRunner: NSObject, ObservableObject, NSWindowDelegate {
         return base.appendingPathComponent("PAS", isDirectory: true)
     }
 
+    private nonisolated static let activeProfileDefaultsKey = "pas.activeProfile"
+    private nonisolated static let enabledProfilesDefaultsKey = "pas.enabledProfiles"
+
+    private nonisolated static func currentProfileID() -> String {
+        let value = UserDefaults.standard.string(forKey: activeProfileDefaultsKey) ?? PASProfile.work.id
+        let enabled = enabledProfileIDs()
+        guard let profile = PASProfile.profile(for: value), enabled.contains(profile.id) else {
+            return PASProfile.work.id
+        }
+        return profile.id
+    }
+
+    private nonisolated static func enabledProfileIDs() -> Set<String> {
+        let values = UserDefaults.standard.stringArray(forKey: enabledProfilesDefaultsKey) ?? [PASProfile.work.id]
+        var ids = Set(values.filter { PASProfile.profile(for: $0) != nil })
+        ids.insert(PASProfile.work.id)
+        return ids
+    }
+
+    private nonisolated static func saveEnabledProfileIDs(_ ids: Set<String>) {
+        UserDefaults.standard.set(Array(ids).sorted(), forKey: enabledProfilesDefaultsKey)
+    }
+
+    private nonisolated static func activeSupportDirectory() -> URL {
+        let root = supportDirectory()
+        switch currentProfileID() {
+        case PASProfile.personal.id:
+            return root
+                .appendingPathComponent("profiles", isDirectory: true)
+                .appendingPathComponent(PASProfile.personal.id, isDirectory: true)
+        default:
+            return root
+        }
+    }
+
     private nonisolated static func configURL() -> URL {
-        supportDirectory().appendingPathComponent("config.toml")
+        activeSupportDirectory().appendingPathComponent("config.toml")
     }
 
     private nonisolated static func assigneesURL() -> URL {
-        supportDirectory().appendingPathComponent("assignees.json")
+        activeSupportDirectory().appendingPathComponent("assignees.json")
     }
 
     private nonisolated static func reportAgentURL() -> URL {
-        supportDirectory().appendingPathComponent("report-agent.md")
+        activeSupportDirectory().appendingPathComponent("report-agent.md")
     }
 
     private nonisolated static func logsDirectory() -> URL {
-        supportDirectory().appendingPathComponent("logs", isDirectory: true)
+        activeSupportDirectory().appendingPathComponent("logs", isDirectory: true)
     }
 
     private nonisolated static func snapshotsDirectory() -> URL {
-        supportDirectory().appendingPathComponent("snapshots", isDirectory: true)
+        activeSupportDirectory().appendingPathComponent("snapshots", isDirectory: true)
     }
 
     private nonisolated static func stateURL() -> URL {
-        supportDirectory().appendingPathComponent("state.json")
+        activeSupportDirectory().appendingPathComponent("state.json")
     }
 
     private nonisolated static func createStateIfNeeded() {

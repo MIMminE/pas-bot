@@ -40,7 +40,8 @@ struct PASSettingsStore {
             gitStatusScheduleEnabled: readBoolConfigValue(section: "schedules.git_status", key: "enabled", defaultValue: false),
             gitStatusScheduleTime: readConfigValue(section: "schedules.git_status", key: "time"),
             gitStatusCatchUp: readBoolConfigValue(section: "schedules.git_status", key: "catch_up_if_missed", defaultValue: true),
-            defaultIDEAppName: readConfigValue(section: "developer", key: "default_ide_app")
+            defaultIDEAppName: readConfigValue(section: "developer", key: "default_ide_app"),
+            workCommitPreviewRows: readIntConfigValue(section: "developer", key: "work_commit_preview_rows", defaultValue: 4)
         )
     }
 
@@ -88,6 +89,11 @@ struct PASSettingsStore {
             return defaultValue
         }
         return value.lowercased() == "true"
+    }
+
+    private func readIntConfigValue(section: String, key: String, defaultValue: Int) -> Int {
+        let value = readConfigValue(section: section, key: key)
+        return Int(value) ?? defaultValue
     }
 
     private struct RepositoryProjectConfig {
@@ -147,6 +153,7 @@ struct PASSettingsStore {
         text = replaceConfigValue(text, section: "general", key: "work_end_time", value: settings.workEndTime)
         text = replaceConfigValue(text, section: "developer", key: "default_ide_app", value: settings.defaultIDEAppName)
         text = replaceConfigValue(text, section: "developer", key: "clone_root", value: settings.cloneRoot)
+        text = replaceConfigIntValue(text, section: "developer", key: "work_commit_preview_rows", value: settings.workCommitPreviewRowsOrDefault)
         text = replaceConfigValue(text, section: "jira", key: "base_url", value: settings.jiraBaseURL)
         text = replaceConfigValue(text, section: "jira", key: "email", value: settings.jiraEmail)
         text = replaceConfigValue(text, section: "jira", key: "api_token", value: settings.jiraApiToken)
@@ -196,6 +203,10 @@ struct PASSettingsStore {
 
     private func replaceConfigBoolValue(_ text: String, section: String, key: String, value: Bool) -> String {
         replaceConfigLine(text, section: section, key: key, renderedValue: value ? "true" : "false")
+    }
+
+    private func replaceConfigIntValue(_ text: String, section: String, key: String, value: Int) -> String {
+        replaceConfigLine(text, section: section, key: key, renderedValue: "\(value)")
     }
 
     private func removeConfigValue(_ text: String, section: String, key: String) -> String {

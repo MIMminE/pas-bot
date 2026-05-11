@@ -11,6 +11,41 @@ struct PASCommandResult: Sendable {
     }
 }
 
+enum PASProfileKind: String, Sendable {
+    case work
+    case personal
+}
+
+struct PASProfile: Identifiable, Hashable, Sendable {
+    let id: String
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let kind: PASProfileKind
+
+    static let work = PASProfile(
+        id: "work",
+        title: "업무",
+        subtitle: "조직 Jira, Slack, GitHub 흐름",
+        systemImage: "building.2",
+        kind: .work
+    )
+
+    static let personal = PASProfile(
+        id: "personal",
+        title: "개인",
+        subtitle: "개인 GitHub 프로젝트 중심",
+        systemImage: "person.crop.circle",
+        kind: .personal
+    )
+
+    static let all: [PASProfile] = [.work, .personal]
+
+    static func profile(for id: String) -> PASProfile? {
+        all.first { $0.id == id }
+    }
+}
+
 struct PASSettings {
     var slackMode: String
     var slackBotToken: String
@@ -45,6 +80,7 @@ struct PASSettings {
     var gitStatusScheduleTime: String
     var gitStatusCatchUp: Bool
     var defaultIDEAppName: String
+    var workCommitPreviewRows: Int
 
     var testChannelID: String {
         slackTestChannelID.isEmpty ? slackDefaultChannelID : slackTestChannelID
@@ -85,6 +121,10 @@ struct PASSettings {
     var gitStatusScheduleTimeOrDefault: String {
         gitStatusScheduleTime.isEmpty ? "09:10" : gitStatusScheduleTime
     }
+
+    var workCommitPreviewRowsOrDefault: Int {
+        min(max(workCommitPreviewRows, 1), 8)
+    }
 }
 
 struct SlackChannel: Identifiable, Hashable, Sendable {
@@ -109,6 +149,13 @@ struct LocalRepositoryOption: Identifiable, Hashable, Sendable {
     let baseBehind: Int?
     let baseAhead: Int?
     let isWorkingBranch: Bool
+    let baseRebaseAlert: String
+    let todayCommitCount: Int
+    let todayCommitLatest: String
+    let baseCommitSummary: String
+    let autoSyncMessage: String
+    let pullRequestSummary: String
+    let releaseSummary: String
 
     var id: String {
         path
@@ -131,17 +178,46 @@ struct LocalRepositoryOption: Identifiable, Hashable, Sendable {
     }
 
     var baseLabel: String {
+        let commitSuffix = baseCommitSummary.isEmpty ? "" : " · \(baseCommitSummary)"
+        if !baseRebaseAlert.isEmpty {
+            return "자동 rebase 확인 필요"
+        }
         if isWorkingBranch {
             if let baseBehind, baseBehind > 0 {
-                return "작업중 | 기준 \(baseBranch) 대비 rebase 필요: behind \(baseBehind)"
+                return "작업중 | 기준 \(baseBranch) 대비 rebase 필요: behind \(baseBehind)\(commitSuffix)"
             }
-            return "작업중 | 기준 \(baseBranch)"
+            return "작업중 | 기준 \(baseBranch)\(commitSuffix)"
         }
-        return "기준 브랜치 \(baseBranch)"
+        return "기준 브랜치 \(baseBranch)\(commitSuffix)"
+    }
+
+    var autoSyncLabel: String {
+        autoSyncMessage.isEmpty ? "" : "자동 처리됨"
+    }
+
+    var githubSummaryAvailable: Bool {
+        !pullRequestSummary.isEmpty || !releaseSummary.isEmpty
     }
 
     var needsBaseRebase: Bool {
         isWorkingBranch && (baseBehind ?? 0) > 0
+    }
+
+    var todayCommitLabel: String {
+        if todayCommitCount == 0 {
+            return "오늘 작업 없음"
+        }
+        if todayCommitLines.isEmpty {
+            return "오늘 작업 \(todayCommitCount)개"
+        }
+        return "오늘 작업 \(todayCommitCount)개"
+    }
+
+    var todayCommitLines: [String] {
+        todayCommitLatest
+            .components(separatedBy: " ¶ ")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     var needsUpdate: Bool {
@@ -163,6 +239,20 @@ struct LocalRepositoryOption: Identifiable, Hashable, Sendable {
     var isJiraWorkBranch: Bool {
         branch.range(of: #"[A-Z][A-Z0-9]+-\d+"#, options: [.regularExpression, .caseInsensitive]) != nil
             && branch != baseBranch
+    }
+}
+
+struct BranchOption: Identifiable, Hashable, Sendable {
+    let name: String
+    let current: Bool
+    let remote: Bool
+
+    var id: String {
+        name
+    }
+
+    var label: String {
+        remote ? "\(name) (remote)" : name
     }
 }
 
