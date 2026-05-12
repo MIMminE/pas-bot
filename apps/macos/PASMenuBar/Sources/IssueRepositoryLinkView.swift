@@ -6,7 +6,7 @@ struct IssueRepositoryLinkView: View {
     let summary: String
 
     @State private var repositories: [LocalRepositoryOption] = []
-    @State private var selectedPath = ""
+    @State private var selectedPaths: Set<String> = []
     @State private var isLoading = false
     @State private var resultMessage = ""
 
@@ -40,7 +40,7 @@ struct IssueRepositoryLinkView: View {
                 }
                 .disabled(isLoading || runner.isRunning)
 
-                Text("선택한 연결은 state.json에 저장되고 다음 Jira 브리핑에도 표시됩니다.")
+                Text("여러 repository를 선택할 수 있고, 선택한 연결은 다음 Jira 대시보드에도 표시됩니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -76,11 +76,12 @@ struct IssueRepositoryLinkView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(repositories) { repo in
                             Button {
-                                selectedPath = repo.path
+                                toggleSelection(repo.path)
                             } label: {
+                                let isSelected = selectedPaths.contains(repo.path)
                                 HStack(spacing: 10) {
-                                    Image(systemName: selectedPath == repo.path ? "checkmark.circle.fill" : "circle")
-                                        .foregroundStyle(selectedPath == repo.path ? Color.accentColor : Color.secondary)
+                                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                                     VStack(alignment: .leading, spacing: 3) {
                                         HStack {
                                             Text(repo.name)
@@ -100,7 +101,7 @@ struct IssueRepositoryLinkView: View {
                                     Spacer()
                                 }
                                 .padding(10)
-                                .background(selectedPath == repo.path ? Color.accentColor.opacity(0.12) : Color(nsColor: .controlBackgroundColor))
+                                .background(isSelected ? Color.accentColor.opacity(0.12) : Color(nsColor: .controlBackgroundColor))
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
                             }
                             .buttonStyle(.plain)
@@ -120,6 +121,9 @@ struct IssueRepositoryLinkView: View {
             }
 
             HStack {
+                Text(selectedPaths.isEmpty ? "선택된 repository 없음" : "\(selectedPaths.count)개 repository 선택")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Spacer()
                 Button("닫기") {
                     runner.closeIssueRepositoryLinkWindow()
@@ -127,18 +131,18 @@ struct IssueRepositoryLinkView: View {
                 Button("연결 저장") {
                     Task { await saveLink() }
                 }
-                .disabled(selectedPath.isEmpty || runner.isRunning)
+                .disabled(selectedPaths.isEmpty || runner.isRunning)
 
                 Button("연결 저장 후 브랜치 시작") {
                     Task { await saveLinkAndStartBranch() }
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(selectedPath.isEmpty || runner.isRunning)
+                .disabled(selectedPaths.isEmpty || runner.isRunning)
 
                 Button("브랜치 시작 후 IDE 열기") {
                     Task { await saveLinkStartBranchAndOpenIDE() }
                 }
-                .disabled(selectedPath.isEmpty || runner.isRunning)
+                .disabled(selectedPaths.isEmpty || runner.isRunning)
             }
         }
         .padding(20)
@@ -151,36 +155,60 @@ struct IssueRepositoryLinkView: View {
     private func reload() async {
         isLoading = true
         repositories = await runner.loadManagedRepositories()
-        if selectedPath.isEmpty {
-            selectedPath = repositories.first?.path ?? ""
-        }
+        let availablePaths = Set(repositories.map(\.path))
+        selectedPaths = selectedPaths.intersection(availablePaths)
         isLoading = false
     }
 
     private func saveLink() async {
-        let result = await runner.linkIssueRepository(issue: issue, repo: selectedPath, summary: summary)
-        resultMessage = result.displayText
-        if result.succeeded {
+        if await saveSelectedLinks() {
             runner.closeIssueRepositoryLinkWindow()
         }
     }
 
     private func saveLinkAndStartBranch() async {
-        let result = await runner.linkIssueRepository(issue: issue, repo: selectedPath, summary: summary)
-        resultMessage = result.displayText
-        guard result.succeeded else { return }
+        guard await saveSelectedLinks() else { return }
+        let paths = selectedRepositoryPaths
         runner.closeIssueRepositoryLinkWindow()
-        await runner.createBranch(issue: issue, repo: selectedPath, summary: summary)
+        for path in paths {
+            await runner.createBranch(issue: issue, repo: path, summary: summary)
+        }
     }
 
     private func saveLinkStartBranchAndOpenIDE() async {
-        let result = await runner.linkIssueRepository(issue: issue, repo: selectedPath, summary: summary)
-        resultMessage = result.displayText
-        guard result.succeeded else { return }
+        guard await saveSelectedLinks() else { return }
+        let paths = selectedRepositoryPaths
         runner.closeIssueRepositoryLinkWindow()
-        await runner.createBranch(issue: issue, repo: selectedPath, summary: summary)
-        runner.openRepositoryInIDE(path: selectedPath, appName: runner.loadSettings().defaultIDEAppName)
+        for path in paths {
+            await runner.createBranch(issue: issue, repo: path, summary: summary)
+            runner.openRepositoryInIDE(path: path, appName: runner.loadSettings().defaultIDEAppName)
+        }
+    }
+
+    private var selectedRepositoryPaths: [String] {
+        repositories.map(\.path).filter { selectedPaths.contains($0) }
+    }
+
+    private func toggleSelection(_ path: String) {
+        if selectedPaths.contains(path) {
+            selectedPaths.remove(path)
+        } else {
+            selectedPaths.insert(path)
+        }
+    }
+
+    private func saveSelectedLinks() async -> Bool {
+        var outputs: [String] = []
+        for path in selectedRepositoryPaths {
+            let result = await runner.linkIssueRepository(issue: issue, repo: path, summary: summary)
+            outputs.append(result.displayText)
+            if !result.succeeded {
+                resultMessage = outputs.joined(separator: "\n")
+                return false
+            }
+        }
+        resultMessage = outputs.joined(separator: "\n")
+        return true
     }
 }
-
 

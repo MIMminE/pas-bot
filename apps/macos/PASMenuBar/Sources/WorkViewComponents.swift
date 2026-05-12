@@ -45,7 +45,17 @@ struct WorkSidebarView: View {
 
             VStack(spacing: 6) {
                 WorkSidebarButton(
-                    title: "워크스페이스",
+                    title: "대시보드",
+                    systemImage: "rectangle.grid.2x2",
+                    detail: nil,
+                    isSelected: selectedSection == "dashboard" || selectedSection == "briefing",
+                    isCollapsed: isCollapsed
+                ) {
+                    selectedSection = "dashboard"
+                }
+
+                WorkSidebarButton(
+                    title: "저장소 상태",
                     systemImage: "folder.badge.gearshape",
                     detail: repositoryCount > 0 ? "\(repositoryCount)" : nil,
                     isSelected: selectedSection == "workspace",
@@ -62,6 +72,16 @@ struct WorkSidebarView: View {
                     isCollapsed: isCollapsed
                 ) {
                     selectedSection = "report"
+                }
+
+                WorkSidebarButton(
+                    title: "기록",
+                    systemImage: "calendar",
+                    detail: nil,
+                    isSelected: selectedSection == "records",
+                    isCollapsed: isCollapsed
+                ) {
+                    selectedSection = "records"
                 }
 
                 WorkSidebarButton(
@@ -198,6 +218,7 @@ struct WorkSidebarButton: View {
     let isSelected: Bool
     let isCollapsed: Bool
     let action: () -> Void
+    @State private var isHovered = false
 
     var body: some View {
         Button(action: action) {
@@ -226,23 +247,50 @@ struct WorkSidebarButton: View {
             .padding(.horizontal, isCollapsed ? 0 : 10)
             .padding(.vertical, 9)
             .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
-            .background(isSelected ? Color.accentColor.opacity(0.14) : Color.clear)
+            .background(menuBackground)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .contentShape(RoundedRectangle(cornerRadius: 8))
+            .shadow(
+                color: Color.black.opacity(isHovered || isSelected ? 0.16 : 0),
+                radius: isHovered || isSelected ? 10 : 0,
+                x: 0,
+                y: isHovered || isSelected ? 5 : 0
+            )
+            .scaleEffect(isHovered ? 1.015 : 1)
+            .animation(.easeOut(duration: 0.14), value: isHovered)
+            .animation(.easeOut(duration: 0.14), value: isSelected)
         }
         .buttonStyle(.plain)
         .help(title)
+        .onHover { isHovered = $0 }
+    }
+
+    private var menuBackground: Color {
+        if isSelected {
+            return Color.accentColor.opacity(isHovered ? 0.20 : 0.14)
+        }
+        if isHovered {
+            return Color(nsColor: .controlBackgroundColor).opacity(0.82)
+        }
+        return Color.clear
     }
 }
 
-struct DashboardPanel<Content: View>: View {
+struct DashboardPanel<Content: View, Actions: View>: View {
     let title: String
     let systemImage: String
     let content: Content
+    let actions: Actions
 
-    init(title: String, systemImage: String, @ViewBuilder content: () -> Content) {
+    init(
+        title: String,
+        systemImage: String,
+        @ViewBuilder actions: () -> Actions,
+        @ViewBuilder content: () -> Content
+    ) {
         self.title = title
         self.systemImage = systemImage
+        self.actions = actions()
         self.content = content()
     }
 
@@ -254,6 +302,7 @@ struct DashboardPanel<Content: View>: View {
                 Text(title)
                     .font(.headline)
                 Spacer()
+                actions
             }
 
             content
@@ -265,6 +314,12 @@ struct DashboardPanel<Content: View>: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color(nsColor: .separatorColor).opacity(0.55))
         )
+    }
+}
+
+extension DashboardPanel where Actions == EmptyView {
+    init(title: String, systemImage: String, @ViewBuilder content: () -> Content) {
+        self.init(title: title, systemImage: systemImage, actions: { EmptyView() }, content: content)
     }
 }
 
@@ -394,6 +449,7 @@ struct RepositoryDashboardRow: View {
     let onSelect: () -> Void
     let onCheckout: (String) -> Void
     let onOpenIDE: () -> Void
+    let onOpenCodex: () -> Void
     let visibleCommitRows: Int
 
     var body: some View {
@@ -444,6 +500,14 @@ struct RepositoryDashboardRow: View {
             )
             SmallIDEButton(action: onOpenIDE)
                 .disabled(isRunning)
+            Button(action: onOpenCodex) {
+                Image(systemName: "sparkles.rectangle.stack")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 27, height: 24)
+            }
+            .buttonStyle(.borderless)
+            .disabled(isRunning)
+            .help("Codex 작업 지시")
             Spacer(minLength: 0)
         }
     }
