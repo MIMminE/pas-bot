@@ -223,14 +223,22 @@ def _format_issue(
     fields = issue["fields"]
     priority = fields.get("priority", {}) or {}
     status = fields.get("status", {}) or {}
+    assignee = fields.get("assignee", {}) or {}
     due = fields.get("duedate") or "-"
+    created = _format_jira_datetime(fields.get("created"), config.general.timezone)
+    updated = _format_jira_datetime(fields.get("updated"), config.general.timezone)
     badges = _badges(issue["key"], yesterday_keys, stale_keys, high_keys)
     badge_text = "".join(f" [{badge}]" for badge in badges)
     description = _truncate(_description_to_text(fields.get("description")), 220)
     lines = [
         "",
         f"{issue['key']}{badge_text} {fields.get('summary', '')}",
-        f"상태: {status.get('name', 'Unknown')} | 우선순위: {priority.get('name', '-')} | 마감: {due}",
+        (
+            f"상태: {status.get('name', 'Unknown')} | "
+            f"우선순위: {priority.get('name', '-')} | "
+            f"담당: {assignee.get('displayName', '미할당')} | "
+            f"등록: {created} | 갱신: {updated} | 마감: {due}"
+        ),
         f"링크: {_issue_url(config, issue['key'])}",
         f"내용: {description}",
     ]
@@ -430,6 +438,16 @@ def _badges(issue_key: str, yesterday_keys: set[str], stale_keys: set[str], high
 
 def _issue_url(config: AppConfig, issue_key: str) -> str:
     return f"{config.jira.base_url}/browse/{issue_key}"
+
+
+def _format_jira_datetime(value: object, timezone: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        return "-"
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return "-"
+    return parsed.astimezone(ZoneInfo(timezone)).strftime("%m-%d %H:%M")
 
 
 def _issue_keys(issues: list[dict[str, Any]]) -> set[str]:

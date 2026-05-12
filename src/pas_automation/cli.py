@@ -33,14 +33,18 @@ from pas_automation.features.issue_repositories import (
     unlink_issue_repository,
 )
 from pas_automation.features.jira_daily import assign_issue, format_today_items
+from pas_automation.features.jira_flow import team_flow
+from pas_automation.features.jira_issues import create_issue
 from pas_automation.features.jira_issue_watch import check_new_issues
 from pas_automation.features.repo_report import report, snapshot
 from pas_automation.features.repo_morning_sync import morning_sync
 from pas_automation.features.repo_status import summarize_repositories
+from pas_automation.features.report_history import report_history, submit_report_file
 from pas_automation.features.remote_repos import clone_remote_repository, format_remote_repositories, list_remote_repositories
 from pas_automation.features.scheduler import install_schedules, schedule_status, uninstall_schedules
 from pas_automation.features.settings_import import import_settings
 from pas_automation.features.slack_test import send_test_message
+from pas_automation.features.work_notes import add_work_note_file, work_notes
 from pas_automation.integrations.git_repos import ahead_behind, auto_rebase_to_base, branch_options, checkout_branch, commits_between, configured_repositories, configured_repository_projects, fetch, git, owner_repo, pull_ff_only, pull_rebase, push, ref_last_commit_summary, require_clean_worktree, snapshot_repo, status_porcelain
 from pas_automation.integrations.slack import SlackClient, list_channels, section_block
 from pas_automation.runtime_env import load_env_file
@@ -66,6 +70,17 @@ def build_parser() -> argparse.ArgumentParser:
     jira_assign.add_argument("account_id_or_email", help="담당자 accountId, 이메일 또는 alias")
     jira_assign.add_argument("--dry-run", action="store_true", help="실제 할당 없이 미리보기")
 
+    jira_create = jira_sub.add_parser("create", help="Jira 일감 간편 생성")
+    jira_create.add_argument("--summary", required=True, help="일감 제목")
+    jira_create.add_argument("--description", default="", help="일감 설명")
+    jira_create.add_argument("--type", default="Task", help="이슈 타입 이름. 예: Task, Bug, Story")
+    jira_create.add_argument("--assignee", default="", help="담당자 accountId, 이메일 또는 검색어")
+    jira_create.add_argument("--priority", default="", help="우선순위 이름. 예: Highest, High, Medium")
+    jira_create.add_argument("--due-date", default="", help="마감일 YYYY-MM-DD")
+    jira_create.add_argument("--labels", default="", help="쉼표로 구분한 label 목록")
+    jira_create.add_argument("--project", default="", help="프로젝트 키. 비우면 기본 프로젝트")
+    jira_create.add_argument("--dry-run", action="store_true", help="생성 없이 입력값만 확인")
+
     jira_link_repo = jira_sub.add_parser("link-repo", help="Jira 일감과 관리 중인 repository 연결")
     jira_link_repo.add_argument("issue_key", help="Jira 이슈 키")
     jira_link_repo.add_argument("--repo", required=True, help="연결할 관리 repository 경로")
@@ -73,6 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     jira_unlink_repo = jira_sub.add_parser("unlink-repo", help="Jira 일감과 repository 연결 해제")
     jira_unlink_repo.add_argument("issue_key", help="Jira 이슈 키")
+    jira_unlink_repo.add_argument("--repo", default=None, help="특정 repository 연결만 해제할 경로")
 
     jira_repo_links = jira_sub.add_parser("repo-links", help="Jira 일감과 repository 연결 목록")
     jira_repo_links.add_argument("--format", choices=["text", "tsv"], default="text", help="출력 형식")
@@ -83,6 +99,10 @@ def build_parser() -> argparse.ArgumentParser:
     jira_watch.add_argument("--max-results", type=int, default=20, help="최대 조회 개수")
     jira_watch.add_argument("--include-existing", action="store_true", help="첫 실행에서도 최근 이슈를 출력")
     jira_watch.add_argument("--send-slack", action="store_true", help="새 이슈가 있으면 Slack alerts 채널로 전송")
+    jira_flow = jira_sub.add_parser("flow", help="팀 Jira 처리 흐름 조회")
+    jira_flow.add_argument("--days", type=int, default=7, help="조회 기간")
+    jira_flow.add_argument("--max-results", type=int, default=80, help="최대 조회 개수")
+    jira_flow.add_argument("--format", choices=["text", "tsv"], default="text", help="출력 형식")
 
     slack = subparsers.add_parser("slack", help="Slack 알림")
     slack_sub = slack.add_subparsers(dest="command", required=True)
@@ -150,6 +170,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     repo_send_text = repo_sub.add_parser("send-report-text", help="수정한 보고서 텍스트를 Slack으로 전송")
     repo_send_text.add_argument("--text-file", required=True, help="전송할 보고서 텍스트 파일")
+
+    repo_submit_report = repo_sub.add_parser("submit-report", help="보고서를 앱 기록에 제출하고 선택적으로 Slack 전송")
+    repo_submit_report.add_argument("--text-file", required=True, help="제출할 보고서 텍스트 파일")
+    repo_submit_report.add_argument("--notes-file", default="", help="보고서 작성 시 사용한 수동 메모 파일")
+    repo_submit_report.add_argument("--send-slack", action="store_true", help="Slack git_report 채널로 함께 전송")
+
+    repo_report_history = repo_sub.add_parser("report-history", help="제출된 보고서 기록 조회")
+    repo_report_history.add_argument("--format", choices=["json", "text"], default="json", help="출력 형식")
+
+    memo = subparsers.add_parser("memo", help="작업 메모 관리")
+    memo_sub = memo.add_subparsers(dest="command", required=True)
+    memo_add = memo_sub.add_parser("add", help="작업 메모 저장")
+    memo_add.add_argument("--target-type", default="general", help="메모 대상 종류: jira, repo, report, general")
+    memo_add.add_argument("--target-id", default="general", help="메모 대상 식별자")
+    memo_add.add_argument("--target-title", default="일반 메모", help="메모 대상 이름")
+    memo_add.add_argument("--text-file", required=True, help="저장할 메모 텍스트 파일")
+    memo_list = memo_sub.add_parser("list", help="작업 메모 목록 조회")
+    memo_list.add_argument("--format", choices=["json", "text"], default="json", help="출력 형식")
 
     repo_morning_sync = repo_sub.add_parser("morning-sync", help="출근 Git 정비: fetch, 안전한 최신화, 전체 상태 알림")
     repo_morning_sync.add_argument("--send-slack", action="store_true", help="Slack으로 결과 전송")
@@ -282,13 +320,30 @@ def main(argv: list[str] | None = None) -> int:
         print(assign_issue(config, args.issue_key, args.account_id_or_email, dry_run=args.dry_run))
         return 0
 
+    if args.area == "jira" and args.command == "create":
+        print(
+            create_issue(
+                config,
+                summary=args.summary,
+                description=args.description,
+                issue_type=args.type,
+                assignee=args.assignee,
+                priority=args.priority,
+                due_date=args.due_date,
+                labels=args.labels.split(",") if args.labels else [],
+                project_key=args.project,
+                dry_run=args.dry_run,
+            )
+        )
+        return 0
+
     if args.area == "jira" and args.command == "link-repo":
         link = link_issue_repository(config, args.issue_key, args.repo, summary=args.summary)
         print(f"{link.issue_key}\t{link.repo_path}\t{link.repo_name}\tlinked")
         return 0
 
     if args.area == "jira" and args.command == "unlink-repo":
-        removed = unlink_issue_repository(args.issue_key)
+        removed = unlink_issue_repository(args.issue_key, repo_path=args.repo)
         print(f"{args.issue_key.upper()}: {'unlinked' if removed else 'not linked'}")
         return 0
 
@@ -310,6 +365,10 @@ def main(argv: list[str] | None = None) -> int:
                 send_slack=args.send_slack,
             )
         )
+        return 0
+
+    if args.area == "jira" and args.command == "flow":
+        print(team_flow(config, days=args.days, max_results=args.max_results, output_format=args.format))
         return 0
 
     if args.area == "slack" and args.command == "test":
@@ -489,6 +548,30 @@ def main(argv: list[str] | None = None) -> int:
         text = Path(args.text_file).expanduser().read_text(encoding="utf-8")
         SlackClient(config.slack, destination="git_report").send(text, blocks=[section_block(text)])
         print("보고서를 Slack으로 전송했습니다.")
+        return 0
+
+    if args.area == "repo" and args.command == "submit-report":
+        print(submit_report_file(config, text_file=args.text_file, notes_file=args.notes_file, send_slack=args.send_slack))
+        return 0
+
+    if args.area == "repo" and args.command == "report-history":
+        print(report_history(output_format=args.format))
+        return 0
+
+    if args.area == "memo" and args.command == "add":
+        print(
+            add_work_note_file(
+                config,
+                target_type=args.target_type,
+                target_id=args.target_id,
+                target_title=args.target_title,
+                text_file=args.text_file,
+            )
+        )
+        return 0
+
+    if args.area == "memo" and args.command == "list":
+        print(work_notes(output_format=args.format))
         return 0
 
     if args.area == "repo" and args.command == "morning-sync":

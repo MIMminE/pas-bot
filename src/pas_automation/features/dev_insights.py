@@ -8,7 +8,7 @@ import subprocess
 
 from pas_automation.config import AppConfig
 from pas_automation.features.dev_assistant import create_branch
-from pas_automation.features.issue_repositories import issue_repository_links, link_issue_repository
+from pas_automation.features.issue_repositories import issue_repository_link_groups, link_issue_repository
 from pas_automation.integrations.git_repos import (
     ahead_behind,
     configured_repositories,
@@ -36,13 +36,13 @@ class IssueRepoCandidate:
 def recommend_issue_repositories(config: AppConfig, issue_key: str, *, summary: str = "") -> str:
     issue_key = issue_key.upper()
     summary = summary or _safe_issue_summary(config, issue_key)
-    links = issue_repository_links()
+    links = issue_repository_link_groups()
     candidates: list[IssueRepoCandidate] = []
 
     for repo in configured_repositories(config):
         score = 0
         reasons: list[str] = []
-        if links.get(issue_key) and Path(links[issue_key].repo_path).expanduser().resolve() == repo.resolve():
+        if any(Path(link.repo_path).expanduser().resolve() == repo.resolve() for link in links.get(issue_key, [])):
             score += 100
             reasons.append("이미 연결된 repository")
         branch_count = _count_issue_branches(repo, issue_key)
@@ -85,10 +85,10 @@ def recommend_issue_repositories(config: AppConfig, issue_key: str, *, summary: 
 def trace_issue_work(config: AppConfig, issue_key: str) -> str:
     issue_key = issue_key.upper()
     lines = [f"{issue_key} 작업 연결 추적", ""]
-    links = issue_repository_links()
+    links = issue_repository_link_groups()
     if issue_key in links:
-        link = links[issue_key]
-        lines.append(f"[연결 repository]\n- {link.repo_name} | {link.repo_path}")
+        lines.append("[연결 repository]")
+        lines.extend(f"- {link.repo_name} | {link.repo_path}" for link in links[issue_key])
         lines.append("")
 
     found = False
@@ -283,9 +283,12 @@ def _resolve_issue_repo(config: AppConfig, issue_key: str, *, repo_path: str | N
         if target not in {repo.resolve() for repo in repos}:
             raise RuntimeError(f"관리 대상 repository가 아닙니다: {target}")
         return target
-    links = issue_repository_links()
-    if issue_key in links:
-        return Path(links[issue_key].repo_path).expanduser().resolve()
+    links = issue_repository_link_groups()
+    issue_links = links.get(issue_key, [])
+    if len(issue_links) == 1:
+        return Path(issue_links[0].repo_path).expanduser().resolve()
+    if len(issue_links) > 1:
+        raise RuntimeError("여러 repository가 연결되어 있습니다. --repo로 작업할 repository를 지정해 주세요.")
     ranked = []
     for repo in repos:
         score = _token_hits(repo.name, summary) * 4 + _count_issue_branches(repo, issue_key) * 30
